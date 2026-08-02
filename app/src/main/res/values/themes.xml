@@ -1,0 +1,4 @@
+<resources>
+
+    <style name="Theme.ImmichTV" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>
