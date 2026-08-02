@@ -17,11 +17,14 @@ class LocalAuthServer(private val onCredentialsReceived: (String, String) -> Uni
                 get("/login") {
                     val serverUrl = call.parameters["serverUrl"]
                     val apiKey = call.parameters["apiKey"]
-                    if (serverUrl != null && apiKey != null) {
+
+                    println("LocalAuthServer: Received Login Request")
+                    if (!serverUrl.isNullOrBlank() && !apiKey.isNullOrBlank()) {
                         onCredentialsReceived(serverUrl, apiKey)
                         call.respondText("Success! You can close this tab and look at your TV.")
                     } else {
-                        call.respondText("Missing parameters", status = io.ktor.http.HttpStatusCode.BadRequest)
+                        println("LocalAuthServer: Rejected - Missing parameters")
+                        call.respondText("Missing parameters. Both Server URL and API Key are required.", status = io.ktor.http.HttpStatusCode.BadRequest)
                     }
                 }
             }

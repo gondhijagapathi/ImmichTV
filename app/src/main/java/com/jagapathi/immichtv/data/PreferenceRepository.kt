@@ -2,12 +2,24 @@ package com.jagapathi.immichtv.data
 
 import android.content.Context
 import androidx.core.content.edit
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.jagapathi.immichtv.model.ImmichCredentials
 import com.jagapathi.immichtv.model.UserProfile
 import kotlinx.coroutines.flow.*
 
 class PreferenceRepository(private val context: Context) {
-    private val prefs = context.getSharedPreferences("immich_prefs", Context.MODE_PRIVATE)
+    private val masterKey = MasterKey.Builder(context)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val prefs = EncryptedSharedPreferences.create(
+        context,
+        "immich_secure_prefs",
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
 
     private val _activeProfile = MutableStateFlow(getActiveProfileInternal())
     val activeProfile: StateFlow<UserProfile?> = _activeProfile.asStateFlow()
@@ -23,10 +35,10 @@ class PreferenceRepository(private val context: Context) {
 
         prefs.edit(commit = true) {
             putStringSet(KEY_PROFILE_IDS, profileIds)
-            putString(getProfileKey(profile.id, "name"), profile.name)
-            putString(getProfileKey(profile.id, "picture_url"), profile.profilePictureUrl)
-            putString(getProfileKey(profile.id, "server_url"), profile.credentials.serverUrl)
-            putString(getProfileKey(profile.id, "api_key"), profile.credentials.apiKey)
+            putString(getProfileKey(profile.id, FIELD_NAME), profile.name)
+            putString(getProfileKey(profile.id, FIELD_PICTURE_URL), profile.profilePictureUrl)
+            putString(getProfileKey(profile.id, FIELD_SERVER_URL), profile.credentials.serverUrl)
+            putString(getProfileKey(profile.id, FIELD_API_KEY), profile.credentials.apiKey)
         }
 
         if (_activeProfile.value?.id == profile.id || _activeProfile.value == null) {
@@ -49,10 +61,10 @@ class PreferenceRepository(private val context: Context) {
         if (profileIds.remove(profileId)) {
             prefs.edit(commit = true) {
                 putStringSet(KEY_PROFILE_IDS, profileIds)
-                remove(getProfileKey(profileId, "name"))
-                remove(getProfileKey(profileId, "picture_url"))
-                remove(getProfileKey(profileId, "server_url"))
-                remove(getProfileKey(profileId, "api_key"))
+                remove(getProfileKey(profileId, FIELD_NAME))
+                remove(getProfileKey(profileId, FIELD_PICTURE_URL))
+                remove(getProfileKey(profileId, FIELD_SERVER_URL))
+                remove(getProfileKey(profileId, FIELD_API_KEY))
                 
                 if (prefs.getString(KEY_ACTIVE_PROFILE_ID, null) == profileId) {
                     remove(KEY_ACTIVE_PROFILE_ID)
@@ -95,10 +107,10 @@ class PreferenceRepository(private val context: Context) {
     }
 
     private fun getProfileInternal(id: String): UserProfile? {
-        val name = prefs.getString(getProfileKey(id, "name"), null) ?: return null
-        val picUrl = prefs.getString(getProfileKey(id, "picture_url"), null)
-        val url = prefs.getString(getProfileKey(id, "server_url"), null) ?: return null
-        val key = prefs.getString(getProfileKey(id, "api_key"), null) ?: return null
+        val name = prefs.getString(getProfileKey(id, FIELD_NAME), null) ?: return null
+        val picUrl = prefs.getString(getProfileKey(id, FIELD_PICTURE_URL), null)
+        val url = prefs.getString(getProfileKey(id, FIELD_SERVER_URL), null) ?: return null
+        val key = prefs.getString(getProfileKey(id, FIELD_API_KEY), null) ?: return null
         
         return UserProfile(id, name, picUrl, ImmichCredentials(url, key))
     }
@@ -109,6 +121,11 @@ class PreferenceRepository(private val context: Context) {
         private const val KEY_PROFILE_IDS = "profile_ids"
         private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"
         private const val KEY_THEME = "app_theme"
+
+        const val FIELD_NAME = "name"
+        const val FIELD_PICTURE_URL = "picture_url"
+        const val FIELD_SERVER_URL = "server_url"
+        const val FIELD_API_KEY = "api_key"
     }
 }
 

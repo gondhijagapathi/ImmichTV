@@ -14,12 +14,19 @@ import com.jagapathi.immichtv.data.PreferenceRepository
 import com.jagapathi.immichtv.ui.navigation.NavGraph
 import com.jagapathi.immichtv.ui.theme.ImmichTVTheme
 
+import dagger.hilt.android.AndroidEntryPoint
+
+import javax.inject.Inject
+
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var repository: PreferenceRepository
+
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        val repository = PreferenceRepository(applicationContext)
 
         setContent {
             val appTheme by repository.theme.collectAsState()

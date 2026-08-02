@@ -18,13 +18,23 @@ import com.jagapathi.immichtv.ui.main.components.TopNavigationBar
 @Composable
 fun MainScreen(
     viewModel: MainViewModel,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onLogoutSuccess: () -> Unit
 ) {
     val activeProfile by viewModel.activeProfile.collectAsState()
     val credentials = activeProfile?.credentials
     var selectedTab by remember { mutableStateOf(MainNavItem.Home) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    
+    val logoutSuccess by viewModel.logoutSuccessEvent.collectAsState()
+
+    LaunchedEffect(logoutSuccess) {
+        if (logoutSuccess) {
+            viewModel.resetLogoutSuccessEvent()
+            onLogoutSuccess()
+        }
+    }
 
     LaunchedEffect(showLogoutDialog) {
         if (showLogoutDialog) {

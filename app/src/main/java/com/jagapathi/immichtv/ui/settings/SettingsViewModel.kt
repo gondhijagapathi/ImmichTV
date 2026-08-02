@@ -7,7 +7,13 @@ import com.jagapathi.immichtv.data.PreferenceRepository
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-class SettingsViewModel(private val repository: PreferenceRepository) : ViewModel() {
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+
+@HiltViewModel
+class SettingsViewModel @Inject constructor(
+    private val repository: PreferenceRepository
+) : ViewModel() {
 
     val currentTheme: StateFlow<AppTheme> = repository.theme
 

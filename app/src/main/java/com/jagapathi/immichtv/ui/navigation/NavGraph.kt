@@ -2,9 +2,9 @@ package com.jagapathi.immichtv.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -15,58 +15,76 @@ import com.jagapathi.immichtv.ui.main.MainScreen
 import com.jagapathi.immichtv.ui.main.MainViewModel
 import com.jagapathi.immichtv.ui.settings.SettingsScreen
 import com.jagapathi.immichtv.ui.settings.SettingsViewModel
+import kotlinx.serialization.Serializable
 
-sealed class Screen(val route: String) {
-    object Auth : Screen("auth")
-    object Main : Screen("main")
-    object Settings : Screen("settings")
-}
+@Serializable
+data object Splash
+
+@Serializable
+data object Auth
+
+@Serializable
+data object Main
+
+@Serializable
+data object Settings
 
 @Composable
 fun NavGraph(
     navController: NavHostController,
     repository: PreferenceRepository
 ) {
-    val activeProfile by repository.activeProfile.collectAsState()
-
-    LaunchedEffect(activeProfile) {
-        if (activeProfile == null) {
-            navController.navigate(Screen.Auth.route) {
-                popUpTo(0)
-            }
-        } else {
-            navController.navigate(Screen.Main.route) {
-                popUpTo(0)
-            }
-        }
-    }
+    val activeProfile by repository.activeProfile.collectAsStateWithLifecycle()
 
     NavHost(
         navController = navController,
-        startDestination = if (activeProfile == null) Screen.Auth.route else Screen.Main.route
+        startDestination = Splash
     ) {
-        composable(Screen.Auth.route) {
-            val authViewModel: AuthViewModel = viewModel { AuthViewModel(repository) }
+        composable<Splash> {
+            LaunchedEffect(activeProfile) {
+                if (activeProfile == null) {
+                    navController.navigate(Auth) {
+                        popUpTo(Splash) { inclusive = true }
+                    }
+                } else {
+                    navController.navigate(Main) {
+                        popUpTo(Splash) { inclusive = true }
+                    }
+                }
+            }
+        }
+
+        composable<Auth> {
+            val authViewModel: AuthViewModel = hiltViewModel()
+
             AuthScreen(
                 viewModel = authViewModel,
                 onLoginSuccess = {
-                    navController.navigate(Screen.Main.route) {
-                        popUpTo(Screen.Auth.route) { inclusive = true }
+                    navController.navigate(Main) {
+                        popUpTo(Auth) { inclusive = true }
                     }
                 }
             )
         }
-        composable(Screen.Main.route) {
-            val mainViewModel: MainViewModel = viewModel { MainViewModel(repository) }
+        
+        composable<Main> {
+            val mainViewModel: MainViewModel = hiltViewModel()
+            
             MainScreen(
                 viewModel = mainViewModel,
                 onNavigateToSettings = {
-                    navController.navigate(Screen.Settings.route)
+                    navController.navigate(Settings)
+                },
+                onLogoutSuccess = {
+                    navController.navigate(Auth) {
+                        popUpTo(Main) { inclusive = true }
+                    }
                 }
             )
         }
-        composable(Screen.Settings.route) {
-            val settingsViewModel: SettingsViewModel = viewModel { SettingsViewModel(repository) }
+        
+        composable<Settings> {
+            val settingsViewModel: SettingsViewModel = hiltViewModel()
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onBackClick = {

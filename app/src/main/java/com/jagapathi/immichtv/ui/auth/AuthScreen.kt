@@ -27,6 +27,14 @@ fun AuthScreen(
     val apiKey by viewModel.apiKey.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val loginSuccess by viewModel.loginSuccessEvent.collectAsState()
+
+    LaunchedEffect(loginSuccess) {
+        if (loginSuccess) {
+            viewModel.resetLoginSuccessEvent()
+            onLoginSuccess()
+        }
+    }
     
     val qrCodeBitmap = remember(viewModel.serverUrlForQr) {
         QrCodeGenerator.generateQrCode(viewModel.serverUrlForQr, 400)

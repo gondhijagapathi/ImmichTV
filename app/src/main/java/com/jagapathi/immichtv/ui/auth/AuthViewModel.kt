@@ -12,9 +12,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class AuthViewModel(
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+
+@HiltViewModel
+class AuthViewModel @Inject constructor(
     private val repository: PreferenceRepository,
-    private val apiService: ImmichApiService = ImmichApiService()
+    private val apiService: ImmichApiService
 ) : ViewModel() {
     private val _serverUrl = MutableStateFlow("")
     val serverUrl = _serverUrl.asStateFlow()
@@ -27,12 +31,23 @@ class AuthViewModel(
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
+    
+    private val _loginSuccessEvent = MutableStateFlow(false)
+    val loginSuccessEvent = _loginSuccessEvent.asStateFlow()
+    
+    fun resetLoginSuccessEvent() {
+        _loginSuccessEvent.value = false
+    }
 
     val ipAddress = NetworkUtils.getIpAddress() ?: "127.0.0.1"
     val serverUrlForQr = "http://$ipAddress:8080"
 
     private val authServer = LocalAuthServer { url, key ->
-        fetchAndSaveProfile(url, key)
+        // The Ktor server invokes this callback on a background Netty thread.
+        // We MUST ensure the login process and state updates happen on the Main thread.
+        viewModelScope.launch {
+            fetchAndSaveProfile(url, key)
+        }
     }
 
     init {
@@ -52,16 +67,29 @@ class AuthViewModel(
             _isLoading.value = true
             _errorMessage.value = null
             try {
-                val user = apiService.getUserMe(url, key)
+                // Ensure the URL is trimmed of whitespace before making the request
+                val trimmedUrl = url.trim()
+                val trimmedKey = key.trim()
+                
+                println("AuthViewModel: Attempting to authenticate with Immich server: $trimmedUrl")
+                val user = apiService.getUserMe(trimmedUrl, trimmedKey)
+                println("AuthViewModel: Authentication successful! User ID: ${user.id}")
+                
                 val profile = UserProfile(
                     id = user.id,
                     name = user.name ?: user.email ?: "Immich User",
-                    profilePictureUrl = apiService.getProfileImageUrl(url, user.id),
-                    credentials = ImmichCredentials(url, key)
+                    profilePictureUrl = apiService.getProfileImageUrl(trimmedUrl, user.id),
+                    credentials = ImmichCredentials(trimmedUrl, trimmedKey)
                 )
                 repository.saveProfile(profile)
+                
+                // Fire the success callback
+                _loginSuccessEvent.value = true
+                
             } catch (e: Exception) {
-                _errorMessage.value = "Login failed: ${e.message}"
+                e.printStackTrace()
+                println("AuthViewModel: Authentication failed: ${e.message}")
+                _errorMessage.value = "Login failed: ${e.localizedMessage ?: e.message}"
             } finally {
                 _isLoading.value = false
             }
