@@ -78,7 +78,7 @@ class AuthViewModel @Inject constructor(
                 val profile = UserProfile(
                     id = user.id,
                     name = user.name ?: user.email ?: "Immich User",
-                    profilePictureUrl = apiService.getProfileImageUrl(trimmedUrl, user.id),
+                    profilePictureUrl = apiService.getProfileImageUrl(user.id, trimmedUrl),
                     credentials = ImmichCredentials(trimmedUrl, trimmedKey)
                 )
                 repository.saveProfile(profile)

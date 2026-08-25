@@ -14,6 +14,11 @@ import org.junit.Test
 
 class ImmichApiServiceTest {
 
+    private val mockConfig = object : ImmichApiConfig {
+        override val baseUrl: String = "http://localhost"
+        override val apiKey: String = "dummy-key"
+    }
+
     @Test
     fun `getUserMe returns correctly mapped user`() = runBlocking {
         val mockEngine = MockEngine { request ->
@@ -36,8 +41,8 @@ class ImmichApiServiceTest {
             }
         }
 
-        val apiService = ImmichApiService(client)
-        val user = apiService.getUserMe("http://localhost", "dummy-key")
+        val apiService = ImmichApiService(client, mockConfig)
+        val user = apiService.getUserMe()
 
         assertEquals("user-123", user.id)
         assertEquals("Immich User", user.name)
@@ -45,8 +50,8 @@ class ImmichApiServiceTest {
 
     @Test
     fun `getProfileImageUrl returns correct url`() {
-        val apiService = ImmichApiService()
-        val url = apiService.getProfileImageUrl("http://immich.local/", "u1")
-        assertEquals("http://immich.local/api/user/profile-image/u1", url)
+        val apiService = ImmichApiService(config = mockConfig)
+        val url = apiService.getProfileImageUrl("u1", "http://immich.local/")
+        assertEquals("http://immich.local/api/users/u1/profile-image", url)
     }
 }

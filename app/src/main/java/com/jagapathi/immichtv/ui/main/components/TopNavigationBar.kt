@@ -27,6 +27,7 @@ import androidx.tv.material3.*
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.jagapathi.immichtv.R
+import com.jagapathi.immichtv.network.LocalImmichApiService
 
 enum class MainNavItem(@StringRes val titleRes: Int, val icon: ImageVector) {
     Home(R.string.nav_home, Icons.Default.Home),
@@ -62,8 +63,7 @@ fun TopNavigationBar(
     onSettingsClick: () -> Unit,
     onProfileClick: () -> Unit,
     modifier: Modifier = Modifier,
-    profilePictureUrl: String? = null,
-    apiKey: String? = null
+    profilePictureUrl: String? = null
 ) {
     val homeFocusRequester = remember { FocusRequester() }
 
@@ -108,8 +108,7 @@ fun TopNavigationBar(
             UtilityActions(
                 onSettingsClick = onSettingsClick,
                 onProfileClick = onProfileClick,
-                profilePictureUrl = profilePictureUrl,
-                apiKey = apiKey
+                profilePictureUrl = profilePictureUrl
             )
         }
     }
@@ -192,10 +191,10 @@ private fun UtilityActions(
     onSettingsClick: () -> Unit,
     onProfileClick: () -> Unit,
     modifier: Modifier = Modifier,
-    profilePictureUrl: String? = null,
-    apiKey: String? = null
+    profilePictureUrl: String? = null
 ) {
     var showProfileMenu by remember { mutableStateOf(false) }
+    val apiService = LocalImmichApiService.current
 
     Surface(
         modifier = modifier.wrapContentSize(),
@@ -239,6 +238,7 @@ private fun UtilityActions(
                     )
                 ) {
                     val context = LocalContext.current
+                    val apiKey = apiService.apiKey
                     val imageRequest = remember(profilePictureUrl, apiKey) {
                         ImageRequest.Builder(context)
                             .data(profilePictureUrl)

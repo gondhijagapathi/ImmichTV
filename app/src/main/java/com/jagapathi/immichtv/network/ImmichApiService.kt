@@ -1,5 +1,8 @@
 package com.jagapathi.immichtv.network
 
+import androidx.compose.runtime.staticCompositionLocalOf
+import com.jagapathi.immichtv.model.ImmichAlbumDto
+import com.jagapathi.immichtv.model.ImmichPeopleDto
 import com.jagapathi.immichtv.model.ImmichUserDto
 import io.ktor.client.*
 import io.ktor.client.call.*
@@ -7,10 +10,17 @@ import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
-class ImmichApiService(private val client: HttpClient = createDefaultClient()) {
-    
+class ImmichApiService(
+    private val client: HttpClient = createDefaultClient(),
+    private val config: ImmichApiConfig
+) {
+    val baseUrl: String? get() = config.baseUrl
+    val apiKey: String? get() = config.apiKey
+
     private fun getFullUrl(baseUrl: String, endpoint: String): String {
         val normalizedBase = baseUrl.trim().trimEnd('/')
         // If the URL already contains /api at the end, don't add it again
@@ -22,14 +32,52 @@ class ImmichApiService(private val client: HttpClient = createDefaultClient()) {
         return "$urlWithApi/${endpoint.trimStart('/')}"
     }
 
-    suspend fun getUserMe(serverUrl: String, apiKey: String): ImmichUserDto {
-        return client.get(getFullUrl(serverUrl, "users/me")) {
-            header("x-api-key", apiKey)
-        }.body()
+    private fun requireBaseUrl(override: String?): String {
+        return override ?: config.baseUrl ?: throw IllegalStateException("Server URL not configured")
     }
 
-    fun getProfileImageUrl(serverUrl: String, userId: String): String {
-        return getFullUrl(serverUrl, "users/$userId/profile-image")
+    private fun requireApiKey(override: String?): String {
+        return override ?: config.apiKey ?: throw IllegalStateException("API Key not configured")
+    }
+
+    suspend fun getUserMe(serverUrl: String? = null, apiKey: String? = null): ImmichUserDto {
+        val url = requireBaseUrl(serverUrl)
+        val key = requireApiKey(apiKey)
+        return withContext(Dispatchers.IO) {
+            client.get(getFullUrl(url, "users/me")) {
+                header("x-api-key", key)
+            }.body()
+        }
+    }
+
+    fun getProfileImageUrl(userId: String, serverUrl: String? = null): String {
+        val url = requireBaseUrl(serverUrl)
+        return getFullUrl(url, "users/$userId/profile-image")
+    }
+
+    suspend fun getAlbums(): List<ImmichAlbumDto> {
+        val url = requireBaseUrl(null)
+        val key = requireApiKey(null)
+        return withContext(Dispatchers.IO) {
+            client.get(getFullUrl(url, "albums")) {
+                header("x-api-key", key)
+            }.body()
+        }
+    }
+
+    suspend fun getPeople(): ImmichPeopleDto {
+        val url = requireBaseUrl(null)
+        val key = requireApiKey(null)
+        return withContext(Dispatchers.IO) {
+            client.get(getFullUrl(url, "people")) {
+                header("x-api-key", key)
+            }.body()
+        }
+    }
+
+    fun getPersonThumbnailUrl(id: String): String {
+        val url = requireBaseUrl(null)
+        return getFullUrl(url, "people/$id/thumbnail")
     }
 
     companion object {
@@ -43,4 +91,8 @@ class ImmichApiService(private val client: HttpClient = createDefaultClient()) {
             }
         }
     }
+}
+
+val LocalImmichApiService = staticCompositionLocalOf<ImmichApiService> {
+    error("No ImmichApiService provided")
 }

@@ -1,20 +1,29 @@
 package com.jagapathi.immichtv.ui.main
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.*
 import com.jagapathi.immichtv.ui.main.components.MainNavItem
+import com.jagapathi.immichtv.ui.main.components.PeopleGrid
 import com.jagapathi.immichtv.ui.main.components.TopNavigationBar
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun MainScreen(
     viewModel: MainViewModel,
@@ -22,12 +31,23 @@ fun MainScreen(
     onLogoutSuccess: () -> Unit
 ) {
     val activeProfile by viewModel.activeProfile.collectAsState()
+    val people by viewModel.people.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     val credentials = activeProfile?.credentials
     var selectedTab by remember { mutableStateOf(MainNavItem.Home) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     
     val logoutSuccess by viewModel.logoutSuccessEvent.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.clearErrorMessage()
+        }
+    }
 
     LaunchedEffect(logoutSuccess) {
         if (logoutSuccess) {
@@ -50,49 +70,76 @@ fun MainScreen(
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Column {
-            TopNavigationBar(
-                selectedItem = selectedTab,
-                onItemSelected = { selectedTab = it },
-                onSettingsClick = onNavigateToSettings,
-                onProfileClick = { showLogoutDialog = true },
-                profilePictureUrl = activeProfile?.profilePictureUrl,
-                apiKey = activeProfile?.credentials?.apiKey
-            )
+            Box(Modifier.focusGroup().focusRestorer()) {
+                TopNavigationBar(
+                    selectedItem = selectedTab,
+                    onItemSelected = { selectedTab = it },
+                    onSettingsClick = onNavigateToSettings,
+                    onProfileClick = { showLogoutDialog = true },
+                    profilePictureUrl = activeProfile?.profilePictureUrl
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .weight(1f),
+                    .weight(1f)
+                    .focusGroup(),
                 contentAlignment = Alignment.Center
             ) {
-                when (selectedTab) {
-                    MainNavItem.Home -> {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "Welcome to Immich TV!",
-                                style = MaterialTheme.typography.headlineMedium
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(text = "Profile Name: ${activeProfile?.name ?: "Not set"}")
-                            Text(text = "Profile Pic URL: ${activeProfile?.profilePictureUrl ?: "Not set"}")
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(text = "Server: ${credentials?.serverUrl ?: "Not set"}")
-                            Text(
-                                text = "API Key: ${credentials?.apiKey?.take(5)
-                                    ?.let { "$it..." } ?: "Not set"}"
-                            )
+                AnimatedContent(
+                    targetState = selectedTab,
+                    transitionSpec = {
+                        fadeIn().togetherWith(fadeOut())
+                    },
+                    label = "SectionTransition"
+                ) { targetTab ->
+                    when (targetTab) {
+                        MainNavItem.Home -> {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "Welcome to Immich TV!",
+                                    style = MaterialTheme.typography.headlineMedium
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(text = "Profile Name: ${activeProfile?.name ?: "Not set"}")
+                                Text(text = "Profile Pic URL: ${activeProfile?.profilePictureUrl ?: "Not set"}")
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(text = "Server: ${credentials?.serverUrl ?: "Not set"}")
+                                Text(
+                                    text = "API Key: ${credentials?.apiKey?.take(5)
+                                        ?.let { "$it..." } ?: "Not set"}"
+                                )
+                            }
                         }
-                    }
-                    MainNavItem.Albums -> {
-                        Text(
-                            text = "Albums Section (Coming Soon)",
-                            style = MaterialTheme.typography.headlineMedium
-                        )
-                    }
-                    MainNavItem.People -> {
-                        Text(
-                            text = "People Section (Coming Soon)",
-                            style = MaterialTheme.typography.headlineMedium
-                        )
+                        MainNavItem.Albums -> {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Albums Section (Coming Soon)",
+                                    style = MaterialTheme.typography.headlineMedium
+                                )
+                            }
+                        }
+                        MainNavItem.People -> {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isLoading) {
+                                    CircularProgressIndicator()
+                                } else {
+                                    PeopleGrid(
+                                        people = people
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

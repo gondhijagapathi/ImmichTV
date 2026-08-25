@@ -6,9 +6,15 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.jagapathi.immichtv.model.ImmichCredentials
 import com.jagapathi.immichtv.model.UserProfile
+import com.jagapathi.immichtv.network.ImmichApiConfig
 import kotlinx.coroutines.flow.*
 
-class PreferenceRepository(private val context: Context) {
+class PreferenceRepository(private val context: Context) : ImmichApiConfig {
+    override val baseUrl: String?
+        get() = activeProfile.value?.credentials?.serverUrl
+
+    override val apiKey: String?
+        get() = activeProfile.value?.credentials?.apiKey
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
