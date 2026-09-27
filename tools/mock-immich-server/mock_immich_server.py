@@ -3,11 +3,12 @@
 A small stand-in for an Immich server, for trying ImmichTV without a real library.
 
 It serves a generated library of photos and videos spread over the last few years through the
-parts of the Immich API the app uses (users, people, albums, timeline, thumbnails). Response
-shapes follow Immich's OpenAPI spec. Images are made on first request with ImageMagick and cached,
-and each one shows its own date and number so ordering is easy to check.
+parts of the Immich API the app uses (users, people, albums, timeline, thumbnails, video playback).
+Response shapes follow Immich's OpenAPI spec. Images and videos are made on first request with
+ImageMagick and ffmpeg and cached, and each one shows its own date and number so ordering is easy
+to check.
 
-Needs Python 3.10+ and ImageMagick 7 (`magick`). Nothing else.
+Needs Python 3.10+, ImageMagick 7 (`magick`) and, to play videos, ffmpeg. Nothing else.
 
     python3 tools/mock-immich-server/mock_immich_server.py
     # From the Android emulator the server is http://10.0.2.2:2283, API key "test-api-key".
@@ -19,6 +20,8 @@ import colorsys
 import json
 import math
 import random
+import re
+import shutil
 import subprocess
 import threading
 import time
@@ -46,6 +49,20 @@ ALBUM_NAMES = ["Goa trip", "Diwali at home", "Tokyo", "Karthik's birthday", "Wee
                "New York", "Graduation day", "Hyderabad food crawl", "Family reunion", "London"]
 PREVIEW_SIZE = 1440
 THUMBNAIL_SIZE = 250
+VIDEO_SIZE = 960
+
+
+def find_font(pattern):
+    """The file of a font installed on this computer, or None to leave the choice to ffmpeg."""
+    try:
+        path = subprocess.run(["fc-match", "-f", "%{file}", pattern], capture_output=True, text=True).stdout
+    except FileNotFoundError:
+        return None
+    return path if path and "'" not in path else None
+
+
+# ffmpeg only reads bold from a font file, not from a font name.
+CLOCK_FONT = find_font("Liberation Sans:bold")
 
 
 def thumbhash(w, h, rgba):
@@ -270,8 +287,8 @@ class Handler(BaseHTTPRequestHandler):
     legacy_durations: bool
     legacy_albums: bool
     cache_dir: Path
-    image_locks: dict = {}
-    image_locks_guard = threading.Lock()
+    render_locks: dict = {}
+    render_locks_guard = threading.Lock()
 
     def do_GET(self):
         url = urlparse(self.path)
@@ -345,6 +362,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.not_found()
             size = PREVIEW_SIZE if params.get("size") == "preview" else THUMBNAIL_SIZE
             return self.send_image(f"asset-{asset['id']}-{size}", lambda out: self.render_asset(out, asset, size))
+        if len(parts) == 4 and parts[0] == "assets" and parts[2:] == ["video", "playback"]:
+            asset = self.library.by_id.get(parts[1])
+            if asset is None:
+                return self.not_found()
+            if not asset["is_video"]:
+                return self.send_json({"message": "Asset is not a video", "statusCode": 400,
+                                       "error": "Bad Request"}, HTTPStatus.BAD_REQUEST)
+            if shutil.which("ffmpeg") is None:
+                return self.send_json({"message": "The mock server needs ffmpeg to make videos", "statusCode": 500,
+                                       "error": "Internal Server Error"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            video = self.cached(f"video-{asset['id']}.mp4", lambda out: self.render_video(out, asset))
+            return self.send_file_range(video, "video/mp4")
         return self.not_found()
 
     def bucket_response(self, assets):
@@ -441,6 +470,26 @@ class Handler(BaseHTTPRequestHandler):
             "-quality", "85", str(out),
         ], check=True)
 
+    def render_video(self, out, asset):
+        """The asset's preview with a running clock, and a beep every second."""
+        background = out.with_suffix(".jpg")
+        self.render_asset(background, asset, VIDEO_SIZE)
+        seconds = asset["duration_ms"] / 1000
+        clock = r"%{eif\:t/60\:d}\:%{eif\:mod(t,60)\:d\:2}"
+        font = f"fontfile='{CLOCK_FONT}':" if CLOCK_FONT else ""
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-loop", "1", "-framerate", "10", "-i", str(background),
+            "-f", "lavfi", "-i", "aevalsrc='0.2*sin(2*PI*880*t)*lt(mod(t,1),0.08)':s=44100",
+            "-t", f"{seconds:.3f}",
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,"
+                   f"drawtext={font}text='{clock}':fontsize=h/10:fontcolor=white:"
+                   "box=1:boxcolor=black@0.4:boxborderw=12:x=(w-tw)/2:y=h*0.78",
+            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage", "-pix_fmt", "yuv420p", "-g", "20",
+            "-c:a", "aac", "-b:a", "64k", "-shortest", "-movflags", "+faststart", "-f", "mp4", str(out),
+        ], check=True)
+        background.unlink()
+
     @staticmethod
     def render_avatar(out, color, text):
         subprocess.run([
@@ -449,22 +498,58 @@ class Handler(BaseHTTPRequestHandler):
             "-quality", "85", str(out),
         ], check=True)
 
-    def send_image(self, name, render):
-        out = self.cache_dir / f"{name}.jpg"
-        with self.image_locks_guard:
-            lock = self.image_locks.setdefault(name, threading.Lock())
+    def cached(self, file_name, render):
+        """Makes a file with render(path) the first time it's asked for, then reuses it."""
+        out = self.cache_dir / file_name
+        with self.render_locks_guard:
+            lock = self.render_locks.setdefault(file_name, threading.Lock())
         with lock:
             if not out.exists():
-                temp = out.with_suffix(".tmp.jpg")
+                temp = out.with_name(f"tmp-{out.name}")
                 render(temp)
                 temp.replace(out)
-        body = out.read_bytes()
+        return out
+
+    def send_image(self, name, render):
+        body = self.cached(f"{name}.jpg", render).read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "private, max-age=86400, no-transform")
         self.end_headers()
         self.wfile.write(body)
+
+    def send_file_range(self, path, content_type):
+        """Sends a file, or the part asked for with a Range header, as Immich does for videos."""
+        body = path.read_bytes()
+        size = len(body)
+        start, end = 0, size - 1
+        requested = self.headers.get("Range")
+        if requested:
+            match = re.fullmatch(r"bytes=(\d*)-(\d*)", requested.strip())
+            if match and match.group(1):
+                start = int(match.group(1))
+                end = min(int(match.group(2)), size - 1) if match.group(2) else size - 1
+            elif match and match.group(2):
+                start = max(0, size - int(match.group(2)))
+            if not match or start >= size or start > end:
+                self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+        self.send_response(HTTPStatus.PARTIAL_CONTENT if requested else HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(end - start + 1))
+        if requested:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Cache-Control", "private, max-age=86400, no-transform")
+        self.end_headers()
+        try:
+            self.wfile.write(body[start:end + 1])
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Players drop the connection when they seek.
 
     def send_json(self, body, status=HTTPStatus.OK):
         data = json.dumps(body).encode()
@@ -508,8 +593,11 @@ def main():
     months = len({asset["local"].strftime("%Y-%m") for asset in library.assets})
     print(f"Mock Immich server on http://0.0.0.0:{args.port} (emulator: http://10.0.2.2:{args.port})")
     print(f"API key: {args.api_key}")
-    print(f"Library: {len(library.assets)} assets over {months} months and {len(library.albums)} albums, "
-          f"images cached in {args.cache_dir}", flush=True)
+    videos = sum(asset["is_video"] for asset in library.assets)
+    print(f"Library: {len(library.assets)} assets ({videos} videos) over {months} months and "
+          f"{len(library.albums)} albums, images and videos cached in {args.cache_dir}", flush=True)
+    if shutil.which("ffmpeg") is None:
+        print("ffmpeg isn't installed, so videos won't play", flush=True)
     ThreadingHTTPServer(("0.0.0.0", args.port), Handler).serve_forever()
 
 

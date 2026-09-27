@@ -280,6 +280,8 @@ private fun TimelineContent(
             startPosition = start,
             thumbnailUrl = viewModel::thumbnailUrl,
             previewUrl = viewModel::previewUrl,
+            videoUrl = viewModel::videoUrl,
+            createPlayer = viewModel::createVideoPlayer,
             onLoadMonth = { month -> viewModel.loadMonths(month..month) },
             onDismiss = { last ->
                 viewerPosition = null

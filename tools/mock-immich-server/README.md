@@ -2,19 +2,21 @@
 
 A stand-in Immich server for trying ImmichTV without a real library. It makes up a library of
 photos and videos over the last few years and serves it through the parts of the Immich API the
-app uses: `users/me`, `people`, `albums`, `albums/{id}`, `timeline/buckets`, `timeline/bucket` and
-asset thumbnails. Response shapes follow Immich's OpenAPI spec.
+app uses: `users/me`, `people`, `albums`, `albums/{id}`, `timeline/buckets`, `timeline/bucket`,
+asset thumbnails and video playback. Response shapes follow Immich's OpenAPI spec.
 
 The library comes with a dozen albums covering what the Albums tab shows: albums shared with you
 by "Asha Rao", one you share with her, one shown oldest first, one with a long name and
 description, and an empty one.
 
 Every image shows its own date and number (`#1` is the newest), so the order and grouping on
-screen are easy to check.
+screen are easy to check. Videos show the same over a running clock, with a beep every second, so
+seeking and sound are easy to check too. They support byte ranges, as Immich's do, and are made
+the first time they're played, which takes a few seconds for the longest.
 
 ## Run it
 
-Needs Python 3.10+ and ImageMagick 7 (`magick`).
+Needs Python 3.10+, ImageMagick 7 (`magick`) and, for videos to play, ffmpeg.
 
 ```sh
 python3 tools/mock-immich-server/mock_immich_server.py
@@ -37,4 +39,4 @@ Then log in on the TV with:
 | `--legacy-albums` | off | Lists albums like Immich before v3: only your own unless `shared=true` is sent, with the owner as a separate field |
 | `--port` | 2283 | |
 | `--api-key` | `test-api-key` | |
-| `--cache-dir` | `~/.cache/mock-immich-server` | Where generated images are kept |
+| `--cache-dir` | `~/.cache/mock-immich-server` | Where generated images and videos are kept |
