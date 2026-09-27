@@ -16,4 +16,14 @@
     <string name="favorite">Favorite</string>
     <string name="video_playback_unavailable">Video playback isn\'t available yet</string>
     <string name="viewer_position">%1$s of %2$s</string>
+    <string name="back">Back</string>
+    <string name="albums_empty">No albums yet. Albums you create in Immich, or that others share with you, will show up here.</string>
+    <string name="albums_empty_group">Empty albums</string>
+    <string name="album_empty">This album is empty.</string>
+    <plurals name="album_items">
+        <item quantity="one">%s item</item>
+        <item quantity="other">%s items</item>
+    </plurals>
+    <string name="album_shared">Shared</string>
+    <string name="album_shared_by">Shared by %1$s</string>
 </resources>

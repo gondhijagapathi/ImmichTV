@@ -14,11 +14,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.*
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.tv.material3.*
+import com.jagapathi.immichtv.R
 import com.jagapathi.immichtv.model.TimelineQuery
+import com.jagapathi.immichtv.ui.albums.AlbumsScreen
+import com.jagapathi.immichtv.ui.components.ErrorMessage
 import com.jagapathi.immichtv.ui.main.components.MainNavItem
 import com.jagapathi.immichtv.ui.main.components.PeopleGrid
 import com.jagapathi.immichtv.ui.main.components.TopNavigationBar
@@ -29,12 +33,19 @@ import com.jagapathi.immichtv.ui.timeline.PhotoTimeline
 fun MainScreen(
     viewModel: MainViewModel,
     onNavigateToSettings: () -> Unit,
+    onOpenAlbum: (albumId: String) -> Unit,
     onLogoutSuccess: () -> Unit
 ) {
     val activeProfile by viewModel.activeProfile.collectAsState()
     val people by viewModel.people.collectAsState()
     var selectedTab by rememberSaveable { mutableStateOf(MainNavItem.Home) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+
+    // The album opened from here, kept while it's open. When this screen comes back, its card
+    // takes focus from the tabs, which still take it first so that moving up from the grid lands
+    // on the selected tab. remember reads it only then, not as the album opens.
+    var openedAlbumId by rememberSaveable { mutableStateOf<String?>(null) }
+    var albumToRefocus by remember { mutableStateOf(openedAlbumId) }
 
     val logoutSuccess by viewModel.logoutSuccessEvent.collectAsState()
 
@@ -73,7 +84,20 @@ fun MainScreen(
                 ) { targetTab ->
                     // Keeps each tab's scroll position while another tab is showing.
                     tabStateHolder.SaveableStateProvider(targetTab.name) {
-                        TabContent(tab = targetTab, people = people, onRetryPeople = viewModel::retry)
+                        TabContent(
+                            tab = targetTab,
+                            people = people,
+                            onRetryPeople = viewModel::retry,
+                            onOpenAlbum = { albumId ->
+                                openedAlbumId = albumId
+                                onOpenAlbum(albumId)
+                            },
+                            albumToFocus = albumToRefocus,
+                            onAlbumFocused = {
+                                albumToRefocus = null
+                                openedAlbumId = null
+                            }
+                        )
                     }
                 }
             }
@@ -97,19 +121,18 @@ fun MainScreen(
 private fun TabContent(
     tab: MainNavItem,
     people: PeopleUiState,
-    onRetryPeople: () -> Unit
+    onRetryPeople: () -> Unit,
+    onOpenAlbum: (albumId: String) -> Unit,
+    albumToFocus: String?,
+    onAlbumFocused: () -> Unit
 ) {
     when (tab) {
         MainNavItem.Home -> PhotoTimeline(query = TimelineQuery.Library)
-        MainNavItem.Albums -> Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Albums Section (Coming Soon)",
-                style = MaterialTheme.typography.headlineMedium
-            )
-        }
+        MainNavItem.Albums -> AlbumsScreen(
+            onAlbumClick = onOpenAlbum,
+            focusAlbumId = albumToFocus,
+            onAlbumFocused = onAlbumFocused
+        )
         MainNavItem.People -> Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -127,17 +150,11 @@ private fun PeopleContent(
 ) {
     when (state) {
         PeopleUiState.Loading -> CircularProgressIndicator()
-        is PeopleUiState.Error -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = state.message,
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onRetry) {
-                Text("Retry")
-            }
-        }
+        is PeopleUiState.Error -> ErrorMessage(
+            message = state.message,
+            actionLabel = stringResource(R.string.retry),
+            onAction = onRetry
+        )
         is PeopleUiState.Success -> if (state.people.isEmpty()) {
             Text(
                 text = "No named people yet. Name people in Immich to see them here.",

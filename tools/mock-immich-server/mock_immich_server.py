@@ -42,6 +42,8 @@ PLACES = [
 ]
 RATIOS = [4 / 3, 3 / 4, 16 / 9, 1.0, 9 / 16, 3 / 2]
 PEOPLE = ["Asha", "Ravi", "Meera", "Karthik", "Lakshmi"]
+ALBUM_NAMES = ["Goa trip", "Diwali at home", "Tokyo", "Karthik's birthday", "Weekend in Paris", "Monsoon walks",
+               "New York", "Graduation day", "Hyderabad food crawl", "Family reunion", "London"]
 PREVIEW_SIZE = 1440
 THUMBNAIL_SIZE = 250
 
@@ -201,8 +203,55 @@ class Library:
             asset["thumbhash"] = gradient_thumbhash(asset["top"], asset["bottom"], asset["ratio"])
         self.by_id = {asset["id"]: asset for asset in self.assets}
 
+        self.me = {"id": self.user_id, "name": "Demo User", "email": "demo@example.com"}
+        self.friend = {"id": str(uuid.UUID(int=rng.getrandbits(128), version=4)), "name": "Asha Rao",
+                       "email": "asha@example.com"}
+        self.albums = self.make_albums(rng)
+
+    def make_albums(self, rng):
+        """Albums of a few consecutive photo days each, like trips, with one of each kind the app shows."""
+        by_day = {}
+        for asset in self.assets:
+            by_day.setdefault(asset["local"].date(), []).append(asset)
+        days = sorted(by_day, reverse=True)
+        starts = sorted(rng.sample(range(len(days) - 4), k=len(ALBUM_NAMES)))
+        albums = []
+        for name, start in zip(ALBUM_NAMES, starts):
+            albums.append({
+                "id": str(uuid.UUID(int=rng.getrandbits(128), version=4)),
+                "name": name,
+                "description": "",
+                "assets": [asset for day in days[start:start + rng.randint(1, 4)] for asset in by_day[day]],
+                "owner": self.me,
+                "shared_with": [],
+                "order": "desc",
+            })
+        albums[1]["owner"], albums[1]["shared_with"] = self.friend, [self.me]
+        albums[5]["owner"], albums[5]["shared_with"] = self.friend, [self.me]
+        albums[2]["shared_with"] = [self.friend]
+        albums[3]["order"] = "asc"
+        albums[3]["description"] = "Shown oldest first, as chosen for this album in Immich."
+        albums[4]["name"] = "A very long album name that will not fit on one line of its card"
+        albums[4]["description"] = ("A long description that goes on for a while, to check that it wraps onto a "
+                                    "second line and is then cut off neatly instead of pushing the photos down "
+                                    "the screen. " * 3).strip()
+        albums.append({"id": str(uuid.UUID(int=rng.getrandbits(128), version=4)), "name": "Ideas for next year",
+                       "description": "", "assets": [], "owner": self.me, "shared_with": [], "order": "desc"})
+        return albums
+
+    def visible_albums(self):
+        return [album for album in self.albums
+                if album["owner"] is self.me or self.me in album["shared_with"]]
+
+    def album(self, album_id):
+        return next((album for album in self.visible_albums() if album["id"] == album_id), None)
+
     def filtered(self, params):
         assets = self.assets
+        if params.get("albumId"):
+            album = self.album(params["albumId"])
+            album_ids = {asset["id"] for asset in album["assets"]} if album else set()
+            assets = [asset for asset in assets if asset["id"] in album_ids]
         if params.get("isFavorite") == "true":
             assets = [asset for asset in assets if asset["is_favorite"]]
         elif params.get("isFavorite") == "false":
@@ -219,6 +268,7 @@ class Handler(BaseHTTPRequestHandler):
     api_key: str
     delay: float
     legacy_durations: bool
+    legacy_albums: bool
     cache_dir: Path
     image_locks: dict = {}
     image_locks_guard = threading.Lock()
@@ -248,7 +298,21 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[0] == "users" and parts[2] == "profile-image":
             return self.send_image(f"profile-{parts[1]}", lambda out: self.render_avatar(out, "#5c6bc0", "DU"))
         if path == "/albums":
-            return self.send_json([])
+            albums = self.library.visible_albums()
+            if self.legacy_albums:
+                # Before v3, only your own albums unless asked for shared ones (by you or with you).
+                is_shared = {"true": True, "false": False}.get(params.get("shared"))
+                if is_shared is None:
+                    albums = [album for album in albums if album["owner"] is self.library.me]
+                else:
+                    albums = [album for album in albums if self.is_shared(album) == is_shared]
+            return self.send_json([self.album_response(album) for album in albums])
+        if len(parts) == 2 and parts[0] == "albums":
+            album = self.library.album(parts[1])
+            if album is None:
+                return self.send_json({"message": "Not found or no album.read access", "statusCode": 400,
+                                       "error": "Bad Request"}, HTTPStatus.BAD_REQUEST)
+            return self.send_json(self.album_response(album))
         if path == "/people":
             people = [{"id": person["id"], "name": person["name"], "isHidden": False, "isFavorite": False,
                        "thumbnailPath": f"/people/{person['id']}.jpeg", "birthDate": None,
@@ -267,11 +331,13 @@ class Handler(BaseHTTPRequestHandler):
                 key = asset["local"].strftime("%Y-%m-01")
                 counts[key] = counts.get(key, 0) + 1
             return self.send_json([{"timeBucket": key, "count": counts[key]}
-                                   for key in sorted(counts, reverse=True)])
+                                   for key in sorted(counts, reverse=params.get("order") != "asc")])
         if path == "/timeline/bucket":
             bucket = params.get("timeBucket", "")[:7]
             assets = [asset for asset in self.library.filtered(params)
                       if asset["local"].strftime("%Y-%m") == bucket]
+            if params.get("order") == "asc":
+                assets.reverse()
             return self.send_json(self.bucket_response(assets))
         if len(parts) == 3 and parts[0] == "assets" and parts[2] == "thumbnail":
             asset = self.library.by_id.get(parts[1])
@@ -310,6 +376,51 @@ class Handler(BaseHTTPRequestHandler):
             "city": [asset["city"] for asset in assets],
             "country": [asset["country"] for asset in assets],
         }
+
+    def is_shared(self, album):
+        return album["owner"] is not self.library.me or bool(album["shared_with"])
+
+    def album_response(self, album):
+        def user(u):
+            return {"id": u["id"], "name": u["name"], "email": u["email"], "profileImagePath": "",
+                    "avatarColor": "primary", "profileChangedAt": "2025-01-01T00:00:00.000Z"}
+
+        def local_as_utc(asset):
+            # Immich writes the local time the photo was taken as if it were UTC.
+            return asset["local"].isoformat(timespec="milliseconds") + "Z"
+
+        assets = album["assets"]
+        me, owner = self.library.me, album["owner"]
+        response = {
+            "id": album["id"],
+            "albumName": album["name"],
+            "description": album["description"],
+            "albumThumbnailAssetId": assets[0]["id"] if assets else None,
+            "assetCount": len(assets),
+            "createdAt": "2025-01-01T00:00:00.000Z",
+            "updatedAt": "2025-01-01T00:00:00.000Z",
+            "hasSharedLink": False,
+            "isActivityEnabled": True,
+            "order": album["order"],
+            "shared": self.is_shared(album),
+        }
+        if assets:
+            newest = max(assets, key=lambda asset: asset["local"])
+            response["startDate"] = local_as_utc(min(assets, key=lambda asset: asset["local"]))
+            response["endDate"] = local_as_utc(newest)
+            response["lastModifiedAssetTimestamp"] = newest["utc"].isoformat(timespec="milliseconds") + "Z"
+        if self.legacy_albums:
+            response["owner"] = user(owner)
+            response["ownerId"] = owner["id"]
+            response["assets"] = []
+            response["albumUsers"] = [{"user": user(u), "role": "editor"} for u in album["shared_with"]]
+        else:
+            # The owner first, then the signed-in user if it's someone else's album, then the rest.
+            others = [u for u in album["shared_with"] if u is not me]
+            members = [owner] + ([me] if owner is not me else []) + others
+            response["albumUsers"] = [{"user": user(u), "role": "owner" if u is owner else "editor"}
+                                      for u in members]
+        return response
 
     def render_asset(self, out, asset, size):
         ratio = asset["ratio"]
@@ -380,6 +491,8 @@ def main():
     parser.add_argument("--delay-ms", type=int, default=0, help="slow every API response down, to see loading states")
     parser.add_argument("--legacy-durations", action="store_true",
                         help="send video durations as H:MM:SS strings, like Immich before v3")
+    parser.add_argument("--legacy-albums", action="store_true",
+                        help="list albums like Immich before v3: only your own unless shared=true is sent")
     parser.add_argument("--cache-dir", type=Path, default=Path.home() / ".cache" / "mock-immich-server")
     args = parser.parse_args()
 
@@ -388,13 +501,15 @@ def main():
     Handler.api_key = args.api_key
     Handler.delay = args.delay_ms / 1000
     Handler.legacy_durations = args.legacy_durations
+    Handler.legacy_albums = args.legacy_albums
     Handler.cache_dir = args.cache_dir
 
     library = Handler.library
     months = len({asset["local"].strftime("%Y-%m") for asset in library.assets})
     print(f"Mock Immich server on http://0.0.0.0:{args.port} (emulator: http://10.0.2.2:{args.port})")
     print(f"API key: {args.api_key}")
-    print(f"Library: {len(library.assets)} assets over {months} months, images cached in {args.cache_dir}", flush=True)
+    print(f"Library: {len(library.assets)} assets over {months} months and {len(library.albums)} albums, "
+          f"images cached in {args.cache_dir}", flush=True)
     ThreadingHTTPServer(("0.0.0.0", args.port), Handler).serve_forever()
 
 

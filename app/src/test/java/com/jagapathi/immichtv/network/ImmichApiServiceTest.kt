@@ -18,6 +18,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
+import java.util.Collections
 
 class ImmichApiServiceTest {
 
@@ -66,18 +67,20 @@ class ImmichApiServiceTest {
     }
 
     @Test
-    fun `getAlbums parses Immich album responses`() = runBlocking {
+    fun `getAlbums parses album responses from Immich v2 and v3`() = runBlocking {
         val client = jsonClient {
             respond(
                 content = """
                     [{
                       "albumName": "Holidays",
                       "albumThumbnailAssetId": "asset-1",
-                      "albumUsers": [],
+                      "albumUsers": [{"user": {"id": "user-2", "email": "b@b.c", "name": "B"}, "role": "editor"}],
                       "assetCount": 42,
                       "assets": [],
                       "createdAt": "2024-05-01T10:00:00.000Z",
                       "description": "Beach trip",
+                      "startDate": "2024-04-28T08:00:00.000Z",
+                      "endDate": "2024-05-01T18:30:00.000Z",
                       "hasSharedLink": false,
                       "id": "album-1",
                       "isActivityEnabled": true,
@@ -88,13 +91,22 @@ class ImmichApiServiceTest {
                       "updatedAt": "2024-05-02T10:00:00.000Z"
                     },
                     {
-                      "albumName": "Empty",
+                      "albumName": "Shared with me",
                       "albumThumbnailAssetId": null,
+                      "albumUsers": [
+                        {"user": {"id": "user-2", "email": "b@b.c", "name": "B"}, "role": "owner"},
+                        {"user": {"id": "user-1", "email": "a@b.c", "name": "A"}, "role": "viewer"}
+                      ],
                       "assetCount": 0,
-                      "description": "",
+                      "contributorCounts": [],
+                      "createdAt": "2024-05-01T10:00:00.000Z",
+                      "description": null,
+                      "hasSharedLink": false,
                       "id": "album-2",
-                      "ownerId": "user-1",
-                      "shared": false
+                      "isActivityEnabled": true,
+                      "order": "asc",
+                      "shared": true,
+                      "updatedAt": "2024-05-02T10:00:00.000Z"
                     }]
                 """.trimIndent(),
                 status = HttpStatusCode.OK,
@@ -105,11 +117,54 @@ class ImmichApiServiceTest {
         val albums = ImmichApiService(client, mockConfig).getAlbums()
 
         assertEquals(2, albums.size)
-        assertEquals("Holidays", albums[0].albumName)
-        assertEquals("asset-1", albums[0].albumThumbnailAssetId)
-        assertEquals(42, albums[0].assetCount)
-        assertEquals(true, albums[0].shared)
-        assertNull(albums[1].albumThumbnailAssetId)
+        val (v2, v3) = albums
+        assertEquals("Holidays", v2.albumName)
+        assertEquals("asset-1", v2.albumThumbnailAssetId)
+        assertEquals(42, v2.assetCount)
+        assertEquals(Instant.parse("2024-04-28T08:00:00Z"), v2.startDate)
+        assertEquals(Instant.parse("2024-05-01T18:30:00Z"), v2.endDate)
+        // v2 sends the owner separately from the people the album is shared with.
+        assertEquals("user-1", v2.albumOwner?.id)
+        assertNull(v3.albumThumbnailAssetId)
+        assertNull(v3.description)
+        assertNull(v3.endDate)
+        assertEquals("asc", v3.order)
+        // v3 lists the owner first among the album's users.
+        assertEquals("user-2", v3.albumOwner?.id)
+    }
+
+    @Test
+    fun `getAllAlbums merges own and shared albums`() = runBlocking {
+        val requests = Collections.synchronizedList(mutableListOf<HttpRequestData>())
+        fun album(id: String) = """{"id": "$id", "albumName": "$id"}"""
+        val client = jsonClient { request ->
+            requests += request
+            // Like servers before v3; v3 ignores `shared` and lists every album both times.
+            val body = when (request.url.parameters["shared"]) {
+                "true" -> "[${album("shared-with-me")}, ${album("shared-by-me")}]"
+                else -> "[${album("mine")}, ${album("shared-by-me")}]"
+            }
+            respond(body, HttpStatusCode.OK, jsonHeaders)
+        }
+
+        val albums = ImmichApiService(client, mockConfig).getAllAlbums()
+
+        assertEquals(listOf("mine", "shared-by-me", "shared-with-me"), albums.map { it.id })
+        assertEquals(setOf(null, "true"), requests.map { it.url.parameters["shared"] }.toSet())
+    }
+
+    @Test
+    fun `getAlbum asks for the album without its assets`() = runBlocking {
+        var request: HttpRequestData? = null
+        val client = jsonClient {
+            request = it
+            respond("""{"id": "album-1", "albumName": "Tokyo"}""", HttpStatusCode.OK, jsonHeaders)
+        }
+
+        val album = ImmichApiService(client, mockConfig).getAlbum("album-1")
+
+        assertEquals("Tokyo", album.albumName)
+        assertEquals("http://localhost/api/albums/album-1?withoutAssets=true", request?.url.toString())
     }
 
     @Test
@@ -166,14 +221,17 @@ class ImmichApiServiceTest {
             respond(body, HttpStatusCode.OK, jsonHeaders)
         }
         val apiService = ImmichApiService(client, mockConfig)
-        val albumQuery = TimelineQuery(albumId = "album-1")
+        val albumQuery = TimelineQuery(albumId = "album-1", order = "asc")
 
         val buckets = apiService.getTimeBuckets(albumQuery)
         // Older servers list buckets as full timestamps, which are passed back unchanged.
         apiService.getTimeBucket("2024-05-01T00:00:00.000Z", albumQuery)
 
         assertEquals(listOf(TimeBucketDto("2024-05-01", 3)), buckets)
-        assertEquals(mapOf("albumId" to listOf("album-1")), requests[0].url.parameters.entries().associate { it.key to it.value })
+        assertEquals(
+            mapOf("albumId" to listOf("album-1"), "order" to listOf("asc")),
+            requests[0].url.parameters.entries().associate { it.key to it.value }
+        )
         assertEquals("2024-05-01T00:00:00.000Z", requests[1].url.parameters["timeBucket"])
     }
 

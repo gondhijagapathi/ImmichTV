@@ -2,9 +2,13 @@ package com.jagapathi.immichtv.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.toRoute
+import com.jagapathi.immichtv.ui.albums.AlbumScreen
 import com.jagapathi.immichtv.ui.auth.AuthScreen
 import com.jagapathi.immichtv.ui.auth.AuthViewModel
 import com.jagapathi.immichtv.ui.main.MainScreen
@@ -21,6 +25,9 @@ data object Main
 
 @Serializable
 data object Settings
+
+@Serializable
+data class Album(val id: String)
 
 @Composable
 fun NavGraph(
@@ -44,13 +51,16 @@ fun NavGraph(
             )
         }
         
-        composable<Main> {
+        composable<Main> { entry ->
             val mainViewModel: MainViewModel = hiltViewModel()
-            
+
             MainScreen(
                 viewModel = mainViewModel,
                 onNavigateToSettings = {
-                    navController.navigate(Settings)
+                    if (entry.isResumed()) navController.navigate(Settings)
+                },
+                onOpenAlbum = { albumId ->
+                    if (entry.isResumed()) navController.navigate(Album(albumId))
                 },
                 onLogoutSuccess = {
                     navController.navigate(Auth) {
@@ -60,14 +70,26 @@ fun NavGraph(
             )
         }
         
-        composable<Settings> {
+        composable<Settings> { entry ->
             val settingsViewModel: SettingsViewModel = hiltViewModel()
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onBackClick = {
-                    navController.popBackStack()
+                    if (entry.isResumed()) navController.popBackStack()
+                }
+            )
+        }
+
+        composable<Album> { entry ->
+            AlbumScreen(
+                albumId = entry.toRoute<Album>().id,
+                onBack = {
+                    if (entry.isResumed()) navController.popBackStack()
                 }
             )
         }
     }
 }
+
+// A second press while a screen is already leaving would otherwise open or close two screens.
+private fun NavBackStackEntry.isResumed() = lifecycle.currentState == Lifecycle.State.RESUMED
