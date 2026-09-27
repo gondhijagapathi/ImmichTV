@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -17,9 +18,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.tv.material3.*
+import com.jagapathi.immichtv.model.TimelineQuery
 import com.jagapathi.immichtv.ui.main.components.MainNavItem
 import com.jagapathi.immichtv.ui.main.components.PeopleGrid
 import com.jagapathi.immichtv.ui.main.components.TopNavigationBar
+import com.jagapathi.immichtv.ui.timeline.PhotoTimeline
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -30,7 +33,6 @@ fun MainScreen(
 ) {
     val activeProfile by viewModel.activeProfile.collectAsState()
     val people by viewModel.people.collectAsState()
-    val credentials = activeProfile?.credentials
     var selectedTab by rememberSaveable { mutableStateOf(MainNavItem.Home) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
@@ -61,6 +63,7 @@ fun MainScreen(
                     .focusGroup(),
                 contentAlignment = Alignment.Center
             ) {
+                val tabStateHolder = rememberSaveableStateHolder()
                 AnimatedContent(
                     targetState = selectedTab,
                     transitionSpec = {
@@ -68,47 +71,9 @@ fun MainScreen(
                     },
                     label = "SectionTransition"
                 ) { targetTab ->
-                    when (targetTab) {
-                        MainNavItem.Home -> {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = "Welcome to Immich TV!",
-                                    style = MaterialTheme.typography.headlineMedium
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(text = "Profile Name: ${activeProfile?.name ?: "Not set"}")
-                                Text(text = "Profile Pic URL: ${activeProfile?.profilePictureUrl ?: "Not set"}")
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(text = "Server: ${credentials?.serverUrl ?: "Not set"}")
-                                Text(
-                                    text = "API Key: ${credentials?.apiKey?.take(5)
-                                        ?.let { "$it..." } ?: "Not set"}"
-                                )
-                            }
-                        }
-                        MainNavItem.Albums -> {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Albums Section (Coming Soon)",
-                                    style = MaterialTheme.typography.headlineMedium
-                                )
-                            }
-                        }
-                        MainNavItem.People -> {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                PeopleContent(state = people, onRetry = viewModel::retry)
-                            }
-                        }
+                    // Keeps each tab's scroll position while another tab is showing.
+                    tabStateHolder.SaveableStateProvider(targetTab.name) {
+                        TabContent(tab = targetTab, people = people, onRetryPeople = viewModel::retry)
                     }
                 }
             }
@@ -124,6 +89,33 @@ fun MainScreen(
                 viewModel.logout()
             }
         )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TabContent(
+    tab: MainNavItem,
+    people: PeopleUiState,
+    onRetryPeople: () -> Unit
+) {
+    when (tab) {
+        MainNavItem.Home -> PhotoTimeline(query = TimelineQuery.Library)
+        MainNavItem.Albums -> Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Albums Section (Coming Soon)",
+                style = MaterialTheme.typography.headlineMedium
+            )
+        }
+        MainNavItem.People -> Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            PeopleContent(state = people, onRetry = onRetryPeople)
+        }
     }
 }
 

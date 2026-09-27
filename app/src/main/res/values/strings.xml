@@ -8,4 +8,12 @@
     <string name="sign_out">Sign out</string>
     <string name="settings_appearance">Appearance</string>
     <string name="theme">Theme</string>
+    <string name="retry">Retry</string>
+    <string name="timeline_empty">No photos yet. Photos you back up to Immich will show up here.</string>
+    <string name="today">Today</string>
+    <string name="yesterday">Yesterday</string>
+    <string name="video">Video</string>
+    <string name="favorite">Favorite</string>
+    <string name="video_playback_unavailable">Video playback isn\'t available yet</string>
+    <string name="viewer_position">%1$s of %2$s</string>
 </resources>

@@ -35,6 +35,10 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        // ViewModels log failures with android.util.Log, which does nothing in unit tests.
+        unitTests.isReturnDefaultValues = true
+    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
