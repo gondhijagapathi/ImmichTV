@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.jagapathi.immichtv.R
+import java.text.FieldPosition
 import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -39,6 +40,6 @@ internal fun photoDates(album: AlbumUi): String? {
         val format = DateIntervalFormat.getInstance(DateFormat.YEAR_ABBR_MONTH_DAY, locale)
         format.setTimeZone(TimeZone.GMT_ZONE)
         fun millis(date: LocalDate) = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-        format.formatToValue(DateInterval(millis(from), millis(to))).toString()
+        format.format(DateInterval(millis(from), millis(to)), StringBuffer(), FieldPosition(0)).toString()
     }
 }
