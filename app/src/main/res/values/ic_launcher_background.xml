@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- White, like the Immich mobile app's icon. -->
+    <color name="ic_launcher_background">#FFFFFF</color>
+</resources>
