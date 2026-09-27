@@ -7,9 +7,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -39,26 +38,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Border
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
@@ -145,6 +139,14 @@ private fun TimelineContent(
     var viewerPosition by remember { mutableStateOf<AssetPosition?>(null) }
     val monthError by viewModel.monthError.collectAsStateWithLifecycle()
 
+    // Made once here rather than in each header: building the formats is slow.
+    val dateFormats = rememberTimelineDateFormats()
+    val today = remember { LocalDate.now() }
+
+    // Shared by every tile, so tiles whose photo didn't change skip recomposing when a month loads.
+    val openViewer = remember { { position: AssetPosition -> viewerPosition = position } }
+    val onTileFocusRequested = remember { { pendingFocusKey = null } }
+
     // Load the months on screen plus one either side, so moving on rarely waits for the network.
     LaunchedEffect(gridState, itemOffset) {
         snapshotFlow {
@@ -226,14 +228,15 @@ private fun TimelineContent(
                     contentType = { layout.items[it]::class }
                 ) { index ->
                     when (val item = layout.items[index]) {
-                        is TimelineItem.MonthHeader -> MonthHeader(item.yearMonth)
-                        is TimelineItem.DayHeader -> DayHeader(item.date)
+                        is TimelineItem.MonthHeader -> MonthHeader(item.yearMonth, dateFormats)
+                        is TimelineItem.DayHeader -> DayHeader(item.date, today, dateFormats)
                         is TimelineItem.Tile -> AssetTile(
                             asset = item.asset,
                             thumbnailUrl = item.asset?.let { viewModel.thumbnailUrl(it.id) },
+                            position = item.position,
                             requestFocus = pendingFocusKey == item.key,
-                            onFocusRequested = { pendingFocusKey = null },
-                            onClick = { viewerPosition = item.position }
+                            onFocusRequested = onTileFocusRequested,
+                            onClick = openViewer
                         )
                     }
                 }
@@ -319,8 +322,7 @@ private fun GridScrubber(
 }
 
 @Composable
-private fun MonthHeader(yearMonth: YearMonth) {
-    val formats = rememberTimelineDateFormats()
+private fun MonthHeader(yearMonth: YearMonth, formats: TimelineDateFormats) {
     Text(
         text = formats.month(yearMonth),
         style = MaterialTheme.typography.headlineSmall,
@@ -329,9 +331,7 @@ private fun MonthHeader(yearMonth: YearMonth) {
 }
 
 @Composable
-private fun DayHeader(date: LocalDate) {
-    val formats = rememberTimelineDateFormats()
-    val today = remember { LocalDate.now() }
+private fun DayHeader(date: LocalDate, today: LocalDate, formats: TimelineDateFormats) {
     val text = when (date) {
         today -> stringResource(R.string.today)
         today.minusDays(1) -> stringResource(R.string.yesterday)
@@ -345,17 +345,21 @@ private fun DayHeader(date: LocalDate) {
     )
 }
 
+/**
+ * A photo in the grid. Built from plain modifiers rather than a TV Material `Surface`, which is
+ * too heavy for a grid this size: each row that scrolls in composes seven tiles, and the Surface
+ * also recomposes on every frame of its focus animation.
+ */
 @Composable
 private fun AssetTile(
     asset: TimelineAsset?,
     thumbnailUrl: String?,
+    position: AssetPosition,
     requestFocus: Boolean,
     onFocusRequested: () -> Unit,
-    onClick: () -> Unit
+    onClick: (AssetPosition) -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
 
     if (requestFocus) {
         LaunchedEffect(Unit) {
@@ -364,34 +368,23 @@ private fun AssetTile(
         }
     }
 
-    Surface(
-        onClick = onClick,
-        interactionSource = interactionSource,
-        shape = ClickableSurfaceDefaults.shape(TimelineDefaults.TileShape),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(3.dp, Color.White), shape = TimelineDefaults.TileShape)
-        ),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
+    Box(
         modifier = Modifier
-            // Draw the enlarged, focused tile over its neighbours.
-            .zIndex(if (isFocused) 1f else 0f)
+            .focusIndication(focusedScale = 1.1f, border = TileFocusBorder, shape = TimelineDefaults.TileShape)
             .aspectRatio(1f)
             .focusRequester(focusRequester)
+            .clickable(interactionSource = null, indication = null) { onClick(position) }
+            .clip(TimelineDefaults.TileShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        if (asset == null) return@Surface
+        if (asset == null) return@Box
 
         val context = LocalPlatformContext.current
         val request = remember(thumbnailUrl) {
             // An explicit cache key lets the viewer reuse this thumbnail while its preview loads.
             ImageRequest.Builder(context).data(thumbnailUrl).memoryCacheKey(thumbnailUrl).build()
         }
-        val placeholder = remember(asset.thumbhash) {
-            thumbHashBitmap(asset.thumbhash)?.let { BitmapPainter(it.asImageBitmap()) }
-        }
+        val placeholder = rememberThumbHashPainter(asset.thumbhash)
         AsyncImage(
             model = request,
             contentDescription = null,
@@ -456,6 +449,8 @@ internal fun formatDuration(duration: Duration): String = duration.toComponents 
 
 private const val HeaderKey = "header"
 private const val MonthLoadDelayMillis = 150L
+
+private val TileFocusBorder = BorderStroke(3.dp, Color.White)
 
 internal object TimelineDefaults {
     const val Columns = 7

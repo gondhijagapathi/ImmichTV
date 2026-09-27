@@ -47,34 +47,37 @@ object ThumbHash {
         val w = (if (ratio > 1f) 32f else 32f * ratio).roundToInt()
         val h = (if (ratio > 1f) 32f / ratio else 32f).roundToInt()
         val argb = IntArray(w * h)
-        val fx = FloatArray(max(lx, if (hasAlpha) 5 else 3))
-        val fy = FloatArray(max(ly, if (hasAlpha) 5 else 3))
+        // The cosine factors depend only on the column or the row, so work them out once each
+        // rather than for every pixel. Decoding happens on the main thread as tiles appear.
+        val nx = max(lx, if (hasAlpha) 5 else 3)
+        val ny = max(ly, if (hasAlpha) 5 else 3)
+        val cosX = FloatArray(w * nx) { i -> cos(PI / w * (i / nx + 0.5f) * (i % nx)).toFloat() }
+        val cosY = FloatArray(h * ny) { i -> cos(PI / h * (i / ny + 0.5f) * (i % ny)).toFloat() }
 
         for (y in 0 until h) {
+            val fy = y * ny
             for (x in 0 until w) {
+                val fx = x * nx
                 var l = lDc
                 var p = pDc
                 var q = qDc
                 var a = aDc
 
-                for (cx in fx.indices) fx[cx] = cos(PI / w * (x + 0.5f) * cx).toFloat()
-                for (cy in fy.indices) fy[cy] = cos(PI / h * (y + 0.5f) * cy).toFloat()
-
                 var j = 0
                 for (cy in 0 until ly) {
-                    val fy2 = fy[cy] * 2f
+                    val fy2 = cosY[fy + cy] * 2f
                     var cx = if (cy > 0) 0 else 1
                     while (cx * ly < lx * (ly - cy)) {
-                        l += lAc[j++] * fx[cx] * fy2
+                        l += lAc[j++] * cosX[fx + cx] * fy2
                         cx++
                     }
                 }
 
                 j = 0
                 for (cy in 0 until 3) {
-                    val fy2 = fy[cy] * 2f
+                    val fy2 = cosY[fy + cy] * 2f
                     for (cx in (if (cy > 0) 0 else 1) until 3 - cy) {
-                        val f = fx[cx] * fy2
+                        val f = cosX[fx + cx] * fy2
                         p += pAc[j] * f
                         q += qAc[j] * f
                         j++
@@ -84,9 +87,9 @@ object ThumbHash {
                 if (aAc != null) {
                     j = 0
                     for (cy in 0 until 5) {
-                        val fy2 = fy[cy] * 2f
+                        val fy2 = cosY[fy + cy] * 2f
                         for (cx in (if (cy > 0) 0 else 1) until 5 - cy) {
-                            a += aAc[j++] * fx[cx] * fy2
+                            a += aAc[j++] * cosX[fx + cx] * fy2
                         }
                     }
                 }
