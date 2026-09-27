@@ -1,36 +1,19 @@
 package com.jagapathi.immichtv.ui.timeline
 
-import androidx.datastore.core.DataStore
-import com.jagapathi.immichtv.data.AppSettings
-import com.jagapathi.immichtv.data.PreferenceRepository
-import com.jagapathi.immichtv.model.ImmichCredentials
 import com.jagapathi.immichtv.model.TimelineQuery
-import com.jagapathi.immichtv.model.UserProfile
-import com.jagapathi.immichtv.network.ImmichApiService
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.mock.MockEngine
+import com.jagapathi.immichtv.testing.FakeImmich
+import com.jagapathi.immichtv.testing.await
+import com.jagapathi.immichtv.testing.respondJson
 import io.ktor.client.engine.mock.MockRequestHandleScope
-import io.ktor.client.engine.mock.respond
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
-import io.ktor.serialization.kotlinx.json.json
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
-import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -38,25 +21,11 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import java.util.Collections
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TimelineViewModelTest {
 
-    private class InMemoryDataStore(initial: AppSettings) : DataStore<AppSettings> {
-        private val state = MutableStateFlow(initial)
-        override val data: Flow<AppSettings> = state
-        override suspend fun updateData(transform: suspend (t: AppSettings) -> AppSettings): AppSettings =
-            transform(state.value).also { state.value = it }
-    }
-
-    private val profile = UserProfile(
-        id = "user-1",
-        name = "User",
-        profilePictureUrl = null,
-        credentials = ImmichCredentials("http://immich.local", "key")
-    )
-    private val requests: MutableList<HttpRequestData> = Collections.synchronizedList(mutableListOf())
+    private lateinit var immich: FakeImmich
 
     @Before
     fun setUp() {
@@ -71,21 +40,9 @@ class TimelineViewModelTest {
     private fun viewModel(
         handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData
     ): TimelineViewModel {
-        val client = HttpClient(MockEngine { request -> requests += request; handler(request) }) {
-            expectSuccess = true
-            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
-        }
-        val repository = PreferenceRepository(
-            InMemoryDataStore(AppSettings(profiles = listOf(profile), activeProfileId = profile.id)),
-            CoroutineScope(Dispatchers.Unconfined)
-        )
-        return TimelineViewModel(TimelineQuery.Library, ImmichApiService(client, repository), repository)
+        immich = FakeImmich(handler)
+        return TimelineViewModel(TimelineQuery.Library, immich.apiService, immich.repository)
     }
-
-    private fun MockRequestHandleScope.json(body: String, status: HttpStatusCode = HttpStatusCode.OK) =
-        respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
-
-    private suspend fun <T> StateFlow<T>.await(predicate: (T) -> Boolean): T = withTimeout(5_000) { first(predicate) }
 
     private suspend fun TimelineViewModel.awaitLayout(predicate: (TimelineLayout) -> Boolean = { true }) =
         (state.await { it is TimelineUiState.Ready && predicate(it.layout) } as TimelineUiState.Ready).layout
@@ -106,8 +63,8 @@ class TimelineViewModelTest {
     fun `lists months first and loads their assets on demand`() = runBlocking {
         val viewModel = viewModel { request ->
             when (request.url.encodedPath) {
-                "/api/timeline/buckets" -> json(buckets)
-                else -> json(bucket("a1", "a2"))
+                "/api/timeline/buckets" -> respondJson(buckets)
+                else -> respondJson(bucket("a1", "a2"))
             }
         }
 
@@ -120,12 +77,12 @@ class TimelineViewModelTest {
         assertEquals(listOf("a1", "a2"), loaded.months[0].assets?.map { it.id })
         assertNull(loaded.months[1].assets)
 
-        val listRequest = requests.first { it.url.encodedPath == "/api/timeline/buckets" }
+        val listRequest = immich.requests.first { it.url.encodedPath == "/api/timeline/buckets" }
         assertEquals("timeline", listRequest.url.parameters["visibility"])
         assertEquals("true", listRequest.url.parameters["withPartners"])
         assertEquals("true", listRequest.url.parameters["withStacked"])
         assertEquals("key", listRequest.headers["x-api-key"])
-        val bucketRequest = requests.first { it.url.encodedPath == "/api/timeline/bucket" }
+        val bucketRequest = immich.requests.first { it.url.encodedPath == "/api/timeline/bucket" }
         assertEquals("2024-05-01T00:00:00.000Z", bucketRequest.url.parameters["timeBucket"])
 
         assertEquals(
@@ -140,12 +97,12 @@ class TimelineViewModelTest {
         var failNext = true
         val viewModel = viewModel { request ->
             when {
-                request.url.encodedPath == "/api/timeline/buckets" -> json(buckets)
+                request.url.encodedPath == "/api/timeline/buckets" -> respondJson(buckets)
                 failNext -> {
                     failNext = false
-                    json("""{"message": "boom"}""", HttpStatusCode.InternalServerError)
+                    respondJson("""{"message": "boom"}""", HttpStatusCode.InternalServerError)
                 }
-                else -> json(bucket("a1", "a2"))
+                else -> respondJson(bucket("a1", "a2"))
             }
         }
         viewModel.awaitLayout()
@@ -167,7 +124,7 @@ class TimelineViewModelTest {
     fun `a failed timeline shows an error until a retry succeeds`() = runBlocking {
         var fail = true
         val viewModel = viewModel {
-            if (fail) json("{}", HttpStatusCode.Unauthorized) else json(buckets)
+            if (fail) respondJson("{}", HttpStatusCode.Unauthorized) else respondJson(buckets)
         }
 
         val error = viewModel.state.await { it is TimelineUiState.Error } as TimelineUiState.Error

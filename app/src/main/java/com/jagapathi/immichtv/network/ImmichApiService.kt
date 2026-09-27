@@ -14,6 +14,8 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -59,12 +61,36 @@ class ImmichApiService(
         return getFullUrl(url, "users/$userId/profile-image")
     }
 
-    suspend fun getAlbums(): List<ImmichAlbumDto> {
+    suspend fun getAlbums(shared: Boolean? = null): List<ImmichAlbumDto> {
         val url = requireBaseUrl(null)
         val key = requireApiKey(null)
         return withContext(Dispatchers.IO) {
             client.get(getFullUrl(url, "albums")) {
                 header("x-api-key", key)
+                parameter("shared", shared)
+            }.body()
+        }
+    }
+
+    /**
+     * Fetches every album the user can see: their own and those shared with them. Immich v3 lists
+     * both by default and ignores `shared`. Older servers list only the user's own albums unless
+     * asked for shared ones, so both lists are fetched and merged.
+     */
+    suspend fun getAllAlbums(): List<ImmichAlbumDto> = coroutineScope {
+        val owned = async { getAlbums() }
+        val shared = async { getAlbums(shared = true) }
+        (owned.await() + shared.await()).distinctBy { it.id }
+    }
+
+    suspend fun getAlbum(id: String): ImmichAlbumDto {
+        val url = requireBaseUrl(null)
+        val key = requireApiKey(null)
+        return withContext(Dispatchers.IO) {
+            client.get(getFullUrl(url, "albums/$id")) {
+                header("x-api-key", key)
+                // Servers before Immich v3 send every asset in the album unless told not to.
+                parameter("withoutAssets", true)
             }.body()
         }
     }
@@ -133,6 +159,7 @@ class ImmichApiService(
         parameter("visibility", query.visibility)
         if (query.withPartners) parameter("withPartners", true)
         if (query.withStacked) parameter("withStacked", true)
+        parameter("order", query.order)
     }
 
     fun getAssetThumbnailUrl(assetId: String, size: ThumbnailSize, serverUrl: String? = null): String {

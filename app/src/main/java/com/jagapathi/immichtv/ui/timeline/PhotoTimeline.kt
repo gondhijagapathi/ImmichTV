@@ -7,20 +7,16 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -59,7 +55,6 @@ import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Border
-import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -70,6 +65,8 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.jagapathi.immichtv.R
 import com.jagapathi.immichtv.model.TimelineQuery
+import com.jagapathi.immichtv.ui.components.ErrorMessage
+import com.jagapathi.immichtv.ui.components.TvBringIntoViewSpec
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -83,13 +80,18 @@ import kotlin.time.Duration
  * day, a scrubber on the right for jumping through time, and a full-screen viewer.
  *
  * Everything is driven by [query], so the same component can show the whole library, an album,
- * a person or favorites. [header] is shown above the photos and scrolls with them, e.g. for
- * memories.
+ * a person or favorites. [emptyText] is shown when there are no photos, and [header] above the
+ * photos, scrolling with them, e.g. for memories.
+ *
+ * [requestInitialFocus] focuses the first photo once loaded, or the retry button if loading fails,
+ * for screens where the timeline is the only thing to focus.
  */
 @Composable
 fun PhotoTimeline(
     query: TimelineQuery,
     modifier: Modifier = Modifier,
+    emptyText: String = stringResource(R.string.timeline_empty),
+    requestInitialFocus: Boolean = false,
     header: (@Composable () -> Unit)? = null
 ) {
     val viewModel = hiltViewModel<TimelineViewModel, TimelineViewModel.Factory>(
@@ -100,25 +102,25 @@ fun PhotoTimeline(
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when (val current = state) {
             TimelineUiState.Loading -> CircularProgressIndicator()
-            is TimelineUiState.Error -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = current.message,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = viewModel::retry) {
-                    Text(stringResource(R.string.retry))
-                }
-            }
+            is TimelineUiState.Error -> ErrorMessage(
+                message = current.message,
+                actionLabel = stringResource(R.string.retry),
+                onAction = viewModel::retry,
+                requestFocus = requestInitialFocus
+            )
             is TimelineUiState.Ready -> if (current.layout.months.isEmpty() && header == null) {
                 Text(
-                    text = stringResource(R.string.timeline_empty),
+                    text = emptyText,
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center
                 )
             } else {
-                TimelineContent(layout = current.layout, viewModel = viewModel, header = header)
+                TimelineContent(
+                    layout = current.layout,
+                    viewModel = viewModel,
+                    requestInitialFocus = requestInitialFocus,
+                    header = header
+                )
             }
         }
     }
@@ -129,6 +131,7 @@ fun PhotoTimeline(
 private fun TimelineContent(
     layout: TimelineLayout,
     viewModel: TimelineViewModel,
+    requestInitialFocus: Boolean,
     header: (@Composable () -> Unit)?
 ) {
     val gridState = rememberLazyGridState()
@@ -168,6 +171,15 @@ private fun TimelineContent(
                 gridState.scrollToItem(index)
             }
             pendingFocusKey = layoutNow.tileKey(position)
+        }
+    }
+
+    if (requestInitialFocus) {
+        LaunchedEffect(Unit) {
+            // Unless the grid was restored to somewhere further down.
+            if (gridState.firstVisibleItemIndex == 0 && currentLayout.assetCount > 0) {
+                pendingFocusKey = currentLayout.tileKey(AssetPosition(0, 0))
+            }
         }
     }
 
@@ -438,25 +450,6 @@ private fun AssetTile(
 /** e.g. 0:07, 12:34 or 1:02:03. */
 internal fun formatDuration(duration: Duration): String = duration.toComponents { hours, minutes, seconds, _ ->
     if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds) else "%d:%02d".format(minutes, seconds)
-}
-
-/**
- * Keeps the focused row away from the top and bottom edges while moving through the grid, so the
- * next row, or the date above, is always in sight.
- */
-@OptIn(ExperimentalFoundationApi::class)
-private val TvBringIntoViewSpec = object : BringIntoViewSpec {
-    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        val margin = containerSize * 0.2f
-        val start = offset - margin
-        val end = offset + size - (containerSize - margin)
-        return when {
-            size > containerSize - 2 * margin -> start
-            start < 0 -> start
-            end > 0 -> end
-            else -> 0f
-        }
-    }
 }
 
 private const val HeaderKey = "header"

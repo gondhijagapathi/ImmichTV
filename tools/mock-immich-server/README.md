@@ -2,8 +2,12 @@
 
 A stand-in Immich server for trying ImmichTV without a real library. It makes up a library of
 photos and videos over the last few years and serves it through the parts of the Immich API the
-app uses: `users/me`, `people`, `albums`, `timeline/buckets`, `timeline/bucket` and asset
-thumbnails. Response shapes follow Immich's OpenAPI spec.
+app uses: `users/me`, `people`, `albums`, `albums/{id}`, `timeline/buckets`, `timeline/bucket` and
+asset thumbnails. Response shapes follow Immich's OpenAPI spec.
+
+The library comes with a dozen albums covering what the Albums tab shows: albums shared with you
+by "Asha Rao", one you share with her, one shown oldest first, one with a long name and
+description, and an empty one.
 
 Every image shows its own date and number (`#1` is the newest), so the order and grouping on
 screen are easy to check.
@@ -30,6 +34,7 @@ Then log in on the TV with:
 | `--seed` | 42 | The same seed always makes the same library |
 | `--delay-ms` | 0 | Slows every API response, to see loading placeholders |
 | `--legacy-durations` | off | Sends video durations as `H:MM:SS` strings, like Immich before v3 |
+| `--legacy-albums` | off | Lists albums like Immich before v3: only your own unless `shared=true` is sent, with the owner as a separate field |
 | `--port` | 2283 | |
 | `--api-key` | `test-api-key` | |
 | `--cache-dir` | `~/.cache/mock-immich-server` | Where generated images are kept |
