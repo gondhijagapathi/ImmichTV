@@ -4,6 +4,7 @@ import com.jagapathi.immichtv.model.TimelineQuery
 import com.jagapathi.immichtv.testing.FakeImmich
 import com.jagapathi.immichtv.testing.await
 import com.jagapathi.immichtv.testing.respondJson
+import com.jagapathi.immichtv.ui.video.VideoPlayerFactory
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
@@ -41,7 +42,12 @@ class TimelineViewModelTest {
         handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData
     ): TimelineViewModel {
         immich = FakeImmich(handler)
-        return TimelineViewModel(TimelineQuery.Library, immich.apiService, immich.repository)
+        return TimelineViewModel(
+            TimelineQuery.Library,
+            immich.apiService,
+            immich.repository,
+            VideoPlayerFactory { throw UnsupportedOperationException("Not used in these tests") }
+        )
     }
 
     private suspend fun TimelineViewModel.awaitLayout(predicate: (TimelineLayout) -> Boolean = { true }) =
@@ -90,6 +96,7 @@ class TimelineViewModelTest {
             viewModel.thumbnailUrl("a1")
         )
         assertEquals("http://immich.local/api/assets/a1/thumbnail?size=preview", viewModel.previewUrl("a1"))
+        assertEquals("http://immich.local/api/assets/a1/video/playback", viewModel.videoUrl("a1"))
     }
 
     @Test

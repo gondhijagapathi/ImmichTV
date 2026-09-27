@@ -3,12 +3,14 @@ package com.jagapathi.immichtv.ui.timeline
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.Player
 import com.jagapathi.immichtv.data.PreferenceRepository
 import com.jagapathi.immichtv.model.TimeBucketDto
 import com.jagapathi.immichtv.model.TimelineQuery
 import com.jagapathi.immichtv.network.ImmichApiService
 import com.jagapathi.immichtv.network.ImmichApiService.ThumbnailSize
 import com.jagapathi.immichtv.network.toUserMessage
+import com.jagapathi.immichtv.ui.video.VideoPlayerFactory
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
@@ -49,7 +51,8 @@ sealed interface TimelineUiState {
 class TimelineViewModel @AssistedInject constructor(
     @Assisted private val query: TimelineQuery,
     private val apiService: ImmichApiService,
-    repository: PreferenceRepository
+    repository: PreferenceRepository,
+    private val videoPlayerFactory: VideoPlayerFactory
 ) : ViewModel() {
 
     @AssistedFactory
@@ -155,11 +158,17 @@ class TimelineViewModel @AssistedInject constructor(
 
     fun previewUrl(assetId: String): String? = assetUrl(assetId, ThumbnailSize.Preview)
 
-    // Built from the server the timeline was loaded from, so a logout can't break it mid-frame.
-    private fun assetUrl(assetId: String, size: ThumbnailSize): String? {
-        val serverUrl = (months.value as? Months.Loaded)?.serverUrl ?: return null
-        return apiService.getAssetThumbnailUrl(assetId, size, serverUrl)
-    }
+    fun videoUrl(assetId: String): String? =
+        loadedServerUrl()?.let { apiService.getVideoPlaybackUrl(assetId, it) }
+
+    /** A player for [videoUrl]s. The caller releases it when done. */
+    fun createVideoPlayer(): Player = videoPlayerFactory.create()
+
+    private fun assetUrl(assetId: String, size: ThumbnailSize): String? =
+        loadedServerUrl()?.let { apiService.getAssetThumbnailUrl(assetId, size, it) }
+
+    // URLs use the server the timeline was loaded from, so a logout can't break them mid-frame.
+    private fun loadedServerUrl(): String? = (months.value as? Months.Loaded)?.serverUrl
 
     private companion object {
         const val TAG = "TimelineViewModel"

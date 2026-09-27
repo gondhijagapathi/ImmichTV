@@ -67,6 +67,13 @@ class ImmichApiServiceTest {
     }
 
     @Test
+    fun `getVideoPlaybackUrl points at the stream that supports seeking`() {
+        val apiService = ImmichApiService(jsonClient { respondOk() }, mockConfig)
+        val url = apiService.getVideoPlaybackUrl("a1", "http://immich.local/api/")
+        assertEquals("http://immich.local/api/assets/a1/video/playback", url)
+    }
+
+    @Test
     fun `getAlbums parses album responses from Immich v2 and v3`() = runBlocking {
         val client = jsonClient {
             respond(

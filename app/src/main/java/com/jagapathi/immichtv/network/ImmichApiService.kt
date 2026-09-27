@@ -167,6 +167,15 @@ class ImmichApiService(
         return getFullUrl(url, "assets/$assetId/thumbnail?size=${size.value}")
     }
 
+    /**
+     * Streams a video: the copy the server transcoded for playback if it made one, otherwise the
+     * original. Supports byte ranges, so players can seek.
+     */
+    fun getVideoPlaybackUrl(assetId: String, serverUrl: String? = null): String {
+        val url = requireBaseUrl(serverUrl)
+        return getFullUrl(url, "assets/$assetId/video/playback")
+    }
+
     enum class ThumbnailSize(val value: String) {
         /** Small, for grids (250px by default). */
         Thumbnail("thumbnail"),
