@@ -1,8 +1,11 @@
 package com.jagapathi.immichtv.network
 
 import com.jagapathi.immichtv.model.ImmichUserDto
+import com.jagapathi.immichtv.model.TimeBucketDto
+import com.jagapathi.immichtv.model.TimelineQuery
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
+import io.ktor.client.request.HttpRequestData
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -148,6 +151,30 @@ class ImmichApiServiceTest {
 
         assertEquals(1, requests)
         assertEquals(listOf("p1"), people.map { it.id })
+    }
+
+    @Test
+    fun `timeline requests send only the filters that are set`() = runBlocking {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = jsonClient { request ->
+            requests += request
+            val body = if (request.url.encodedPath.endsWith("buckets")) {
+                """[{"timeBucket": "2024-05-01", "count": 3}]"""
+            } else {
+                """{"id": [], "fileCreatedAt": []}"""
+            }
+            respond(body, HttpStatusCode.OK, jsonHeaders)
+        }
+        val apiService = ImmichApiService(client, mockConfig)
+        val albumQuery = TimelineQuery(albumId = "album-1")
+
+        val buckets = apiService.getTimeBuckets(albumQuery)
+        // Older servers list buckets as full timestamps, which are passed back unchanged.
+        apiService.getTimeBucket("2024-05-01T00:00:00.000Z", albumQuery)
+
+        assertEquals(listOf(TimeBucketDto("2024-05-01", 3)), buckets)
+        assertEquals(mapOf("albumId" to listOf("album-1")), requests[0].url.parameters.entries().associate { it.key to it.value })
+        assertEquals("2024-05-01T00:00:00.000Z", requests[1].url.parameters["timeBucket"])
     }
 
     @Test
