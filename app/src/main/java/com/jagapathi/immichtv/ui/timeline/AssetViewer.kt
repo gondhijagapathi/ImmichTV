@@ -42,6 +42,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
@@ -127,6 +128,7 @@ internal fun AssetViewer(
         onDismissRequest = { onDismiss(position) },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
+        NoWindowShadow()
         val focusRequester = remember { FocusRequester() }
         var controlsFocused by remember { mutableStateOf(false) }
         // Set by down on a video until the controls have taken focus.
@@ -234,6 +236,18 @@ internal fun AssetViewer(
             }
         }
     }
+}
+
+/**
+ * Removes the dialog window's shadow, which the full-screen viewer never shows. Android draws a
+ * window with a shadow into a larger buffer and has the display hardware crop the margin off.
+ * Some TVs (e.g. a Realtek-based Sanyo on Android 9) sometimes skip that crop while a video is on
+ * screen, drawing the whole viewer shifted down and to the right.
+ */
+@Composable
+private fun NoWindowShadow() {
+    val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+    LaunchedEffect(window) { window?.setElevation(0f) }
 }
 
 /** Stops the screen saver from starting while [enabled], e.g. while a video plays. */
