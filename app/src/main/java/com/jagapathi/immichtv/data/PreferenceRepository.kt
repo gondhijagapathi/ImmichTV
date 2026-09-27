@@ -1,140 +1,86 @@
 package com.jagapathi.immichtv.data
 
-import android.content.Context
-import androidx.core.content.edit
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
-import com.jagapathi.immichtv.model.ImmichCredentials
+import android.util.Log
+import androidx.datastore.core.DataStore
 import com.jagapathi.immichtv.model.UserProfile
 import com.jagapathi.immichtv.network.ImmichApiConfig
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.*
+import java.io.IOException
 
-class PreferenceRepository(private val context: Context) : ImmichApiConfig {
+class PreferenceRepository(
+    private val dataStore: DataStore<AppSettings>,
+    private val scope: CoroutineScope
+) : ImmichApiConfig {
+
+    /** The stored settings, or null until they have been read from disk. */
+    val settings: StateFlow<AppSettings?> = dataStore.data
+        .catch { e ->
+            if (e !is IOException) throw e
+            Log.e(TAG, "Couldn't read settings", e)
+            emit(AppSettings())
+        }
+        .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val activeProfile: StateFlow<UserProfile?> = settings.mapState { it?.activeProfile }
+
+    val theme: StateFlow<AppTheme> = settings.mapState { it?.theme ?: AppTheme.System }
+
     override val baseUrl: String?
-        get() = activeProfile.value?.credentials?.serverUrl
+        get() = settings.value?.activeProfile?.credentials?.serverUrl
 
     override val apiKey: String?
-        get() = activeProfile.value?.credentials?.apiKey
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+        get() = settings.value?.activeProfile?.credentials?.apiKey
 
-    private val prefs = EncryptedSharedPreferences.create(
-        context,
-        "immich_secure_prefs",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    suspend fun getAllProfiles(): List<UserProfile> = dataStore.data.first().profiles
 
-    private val _activeProfile = MutableStateFlow(getActiveProfileInternal())
-    val activeProfile: StateFlow<UserProfile?> = _activeProfile.asStateFlow()
-
-    fun getAllProfiles(): List<UserProfile> {
-        val profileIds = prefs.getStringSet(KEY_PROFILE_IDS, emptySet()) ?: emptySet()
-        return profileIds.mapNotNull { getProfileInternal(it) }
-    }
-
-    fun saveProfile(profile: UserProfile) {
-        val profileIds = (prefs.getStringSet(KEY_PROFILE_IDS, emptySet()) ?: emptySet()).toMutableSet()
-        profileIds.add(profile.id)
-
-        prefs.edit(commit = true) {
-            putStringSet(KEY_PROFILE_IDS, profileIds)
-            putString(getProfileKey(profile.id, FIELD_NAME), profile.name)
-            putString(getProfileKey(profile.id, FIELD_PICTURE_URL), profile.profilePictureUrl)
-            putString(getProfileKey(profile.id, FIELD_SERVER_URL), profile.credentials.serverUrl)
-            putString(getProfileKey(profile.id, FIELD_API_KEY), profile.credentials.apiKey)
-        }
-
-        if (_activeProfile.value?.id == profile.id || _activeProfile.value == null) {
-            setActiveProfile(profile.id)
+    /** Adds or updates [profile]. It becomes active if no other profile is. */
+    suspend fun saveProfile(profile: UserProfile) {
+        dataStore.updateData { settings ->
+            val exists = settings.profiles.any { it.id == profile.id }
+            settings.copy(
+                profiles = if (exists) {
+                    settings.profiles.map { if (it.id == profile.id) profile else it }
+                } else {
+                    settings.profiles + profile
+                },
+                activeProfileId = settings.activeProfile?.id ?: profile.id
+            )
         }
     }
 
-    fun setActiveProfile(profileId: String) {
-        val profile = getProfileInternal(profileId)
-        if (profile != null) {
-            prefs.edit(commit = true) {
-                putString(KEY_ACTIVE_PROFILE_ID, profileId)
-            }
-            _activeProfile.value = profile
-        }
-    }
-
-    fun deleteProfile(profileId: String) {
-        val profileIds = (prefs.getStringSet(KEY_PROFILE_IDS, emptySet()) ?: emptySet()).toMutableSet()
-        if (profileIds.remove(profileId)) {
-            prefs.edit(commit = true) {
-                putStringSet(KEY_PROFILE_IDS, profileIds)
-                remove(getProfileKey(profileId, FIELD_NAME))
-                remove(getProfileKey(profileId, FIELD_PICTURE_URL))
-                remove(getProfileKey(profileId, FIELD_SERVER_URL))
-                remove(getProfileKey(profileId, FIELD_API_KEY))
-                
-                if (prefs.getString(KEY_ACTIVE_PROFILE_ID, null) == profileId) {
-                    remove(KEY_ACTIVE_PROFILE_ID)
-                }
-            }
-            
-            if (_activeProfile.value?.id == profileId) {
-                _activeProfile.value = getActiveProfileInternal()
+    suspend fun setActiveProfile(profileId: String) {
+        dataStore.updateData { settings ->
+            if (settings.profiles.any { it.id == profileId }) {
+                settings.copy(activeProfileId = profileId)
+            } else {
+                settings
             }
         }
     }
 
-    fun clearCredentials() {
-        val activeId = prefs.getString(KEY_ACTIVE_PROFILE_ID, null)
-        if (activeId != null) {
-            deleteProfile(activeId)
-        } else {
-            _activeProfile.value = null
+    suspend fun deleteProfile(profileId: String) {
+        dataStore.updateData { settings ->
+            settings.copy(
+                profiles = settings.profiles.filterNot { it.id == profileId },
+                activeProfileId = settings.activeProfileId.takeIf { it != profileId }
+            )
         }
     }
 
-    private val _theme = MutableStateFlow(getThemeInternal())
-    val theme: StateFlow<AppTheme> = _theme.asStateFlow()
-
-    fun setTheme(theme: AppTheme) {
-        prefs.edit {
-            putString(KEY_THEME, theme.name)
-        }
-        _theme.value = theme
+    suspend fun clearCredentials() {
+        val activeId = dataStore.data.first().activeProfileId ?: return
+        deleteProfile(activeId)
     }
 
-    private fun getThemeInternal(): AppTheme {
-        val themeName = prefs.getString(KEY_THEME, AppTheme.System.name)
-        return AppTheme.valueOf(themeName ?: AppTheme.System.name)
+    suspend fun setTheme(theme: AppTheme) {
+        dataStore.updateData { it.copy(theme = theme) }
     }
 
-    private fun getActiveProfileInternal(): UserProfile? {
-        val activeId = prefs.getString(KEY_ACTIVE_PROFILE_ID, null) ?: return null
-        return getProfileInternal(activeId)
+    private fun <T> StateFlow<AppSettings?>.mapState(transform: (AppSettings?) -> T): StateFlow<T> =
+        map(transform).stateIn(scope, SharingStarted.Eagerly, transform(value))
+
+    private companion object {
+        const val TAG = "PreferenceRepository"
     }
-
-    private fun getProfileInternal(id: String): UserProfile? {
-        val name = prefs.getString(getProfileKey(id, FIELD_NAME), null) ?: return null
-        val picUrl = prefs.getString(getProfileKey(id, FIELD_PICTURE_URL), null)
-        val url = prefs.getString(getProfileKey(id, FIELD_SERVER_URL), null) ?: return null
-        val key = prefs.getString(getProfileKey(id, FIELD_API_KEY), null) ?: return null
-        
-        return UserProfile(id, name, picUrl, ImmichCredentials(url, key))
-    }
-
-    private fun getProfileKey(id: String, field: String) = "profile_${id}_$field"
-
-    companion object {
-        private const val KEY_PROFILE_IDS = "profile_ids"
-        private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"
-        private const val KEY_THEME = "app_theme"
-
-        const val FIELD_NAME = "name"
-        const val FIELD_PICTURE_URL = "picture_url"
-        const val FIELD_SERVER_URL = "server_url"
-        const val FIELD_API_KEY = "api_key"
-    }
-}
-
-enum class AppTheme {
-    System, Light, Dark
 }

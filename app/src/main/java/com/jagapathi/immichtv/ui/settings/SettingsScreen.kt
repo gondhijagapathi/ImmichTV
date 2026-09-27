@@ -2,14 +2,12 @@ package com.jagapathi.immichtv.ui.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.*
@@ -17,10 +15,10 @@ import com.jagapathi.immichtv.R
 import com.jagapathi.immichtv.data.AppTheme
 
 sealed class SettingsCategory(
-    val titleRes: Int,
-    val icon: ImageVector
+    @StringRes val titleRes: Int,
+    @DrawableRes val iconRes: Int
 ) {
-    object Appearance : SettingsCategory(R.string.settings_appearance, Icons.Default.Brush)
+    object Appearance : SettingsCategory(R.string.settings_appearance, R.drawable.ic_brush)
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -108,7 +106,7 @@ private fun CategoryItem(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = category.icon,
+                    painter = painterResource(category.iconRes),
                     contentDescription = null,
                     modifier = Modifier.size(24.dp)
                 )
@@ -119,7 +117,7 @@ private fun CategoryItem(
                 )
             }
             Icon(
-                imageVector = Icons.Default.ChevronRight,
+                painter = painterResource(R.drawable.ic_chevron_right),
                 contentDescription = null,
                 modifier = Modifier.size(20.dp)
             )
@@ -191,10 +189,10 @@ private fun ThemeOption(
             )
             if (isSelected) {
                 Icon(
-                    imageVector = Icons.Default.Check,
+                    painter = painterResource(R.drawable.ic_check),
                     contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    // Default tint follows the row's content color, so it stays visible when focused.
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }

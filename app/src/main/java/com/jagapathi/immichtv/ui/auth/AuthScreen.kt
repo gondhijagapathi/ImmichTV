@@ -2,14 +2,27 @@ package com.jagapathi.immichtv.ui.auth
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
@@ -28,6 +41,8 @@ fun AuthScreen(
     val errorMessage by viewModel.errorMessage.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val loginSuccess by viewModel.loginSuccessEvent.collectAsState()
+    val pairingUrl by viewModel.pairingUrl.collectAsState()
+    val isPairingUnavailable by viewModel.isPairingUnavailable.collectAsState()
 
     LaunchedEffect(loginSuccess) {
         if (loginSuccess) {
@@ -36,10 +51,6 @@ fun AuthScreen(
         }
     }
     
-    val qrCodeBitmap = remember(viewModel.serverUrlForQr) {
-        QrCodeGenerator.generateQrCode(viewModel.serverUrlForQr, 400)
-    }
-
     Row(
         modifier = Modifier
             .fillMaxSize()
@@ -57,21 +68,42 @@ fun AuthScreen(
                 fontSize = 24.sp,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
-            Image(
-                bitmap = qrCodeBitmap.asImageBitmap(),
-                contentDescription = "QR Code",
-                modifier = Modifier.size(250.dp)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Visit: ${viewModel.serverUrlForQr}",
-                fontSize = 14.sp
-            )
-            Text(
-                text = "on your phone (same Wi-Fi)",
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+            val url = pairingUrl
+            if (url != null) {
+                val qrCodeBitmap = remember(url) {
+                    QrCodeGenerator.generateQrCode(url, 500).asImageBitmap()
+                }
+                Image(
+                    bitmap = qrCodeBitmap,
+                    contentDescription = "QR Code",
+                    modifier = Modifier.size(250.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Visit: $url",
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "on your phone (same Wi-Fi)",
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            } else {
+                Box(
+                    modifier = Modifier.size(250.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isPairingUnavailable) {
+                            "Phone login isn't available right now. Use manual login instead."
+                        } else {
+                            "Connect the TV to Wi-Fi or Ethernet to log in with your phone."
+                        },
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
         }
 
         // Manual Login Section
@@ -85,26 +117,22 @@ fun AuthScreen(
                 modifier = Modifier.padding(bottom = 24.dp)
             )
 
-            OutlinedTextField(
+            TvTextField(
                 value = serverUrl,
                 onValueChange = viewModel::onServerUrlChange,
-                label = { androidx.compose.material3.Text("Server URL") },
-                placeholder = { androidx.compose.material3.Text("https://your-immich-instance.com") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
+                label = "Server URL",
+                placeholder = "https://your-immich-instance.com",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next)
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedTextField(
+            TvTextField(
                 value = apiKey,
                 onValueChange = viewModel::onApiKeyChange,
-                label = { androidx.compose.material3.Text("API Key") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
+                label = "API Key",
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done)
             )
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -137,4 +165,55 @@ fun AuthScreen(
             }
         }
     }
+}
+
+/**
+ * A text field that can be focused with the D-pad without popping up the on-screen keyboard,
+ * which would otherwise cover half the screen every time focus passes through. Pressing OK
+ * starts editing; the keyboard's Next/Done action or moving focus away stops it.
+ */
+@Composable
+private fun TvTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    keyboardOptions: KeyboardOptions,
+    placeholder: String? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None
+) {
+    var isEditing by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(isEditing) {
+        if (isEditing) keyboardController?.show()
+    }
+
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        readOnly = !isEditing,
+        label = { androidx.compose.material3.Text(label) },
+        placeholder = placeholder?.let { { androidx.compose.material3.Text(it) } },
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { if (!it.isFocused) isEditing = false }
+            .onPreviewKeyEvent { event ->
+                val isConfirm = event.key == Key.DirectionCenter || event.key == Key.Enter ||
+                    event.key == Key.NumPadEnter
+                if (!isEditing && isConfirm) {
+                    if (event.type == KeyEventType.KeyUp) isEditing = true
+                    true
+                } else {
+                    false
+                }
+            },
+        singleLine = true,
+        visualTransformation = visualTransformation,
+        keyboardOptions = keyboardOptions,
+        keyboardActions = KeyboardActions(onAny = {
+            isEditing = false
+            focusManager.moveFocus(FocusDirection.Down)
+        })
+    )
 }

@@ -1,25 +1,28 @@
 package com.jagapathi.immichtv.model
 
-import com.jagapathi.immichtv.util.DateSerializer
+import com.jagapathi.immichtv.util.InstantSerializer
+import com.jagapathi.immichtv.util.LocalDateSerializer
 import kotlinx.serialization.Serializable
-import java.util.Date
+import java.time.Instant
+import java.time.LocalDate
 
 @Serializable
 data class ImmichPeopleDto(
-    val hasNextPage: Boolean,
-    val hidden: Int,
+    // Missing on servers from before the people list was paginated.
+    val hasNextPage: Boolean = false,
+    val hidden: Int = 0,
     val people: List<ImmichPersonResponseDto>,
-    val total: Int
+    val total: Int = 0
 )
 
 @Serializable
 data class ImmichPersonResponseDto(
-    @Serializable(with = DateSerializer::class) val birthDate: Date? = null,
+    @Serializable(with = LocalDateSerializer::class) val birthDate: LocalDate? = null,
     val color: String? = null,
     val id: String,
     val isFavorite: Boolean = false,
     val isHidden: Boolean = false,
     val name: String = "",
     val thumbnailPath: String? = null,
-    @Serializable(with = DateSerializer::class) val updatedAt: Date? = null
+    @Serializable(with = InstantSerializer::class) val updatedAt: Instant? = null
 )
