@@ -10,3 +10,6 @@
 #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
 #   public *;
 #}
+# Ktor's IntelliJ debugger detection uses JVM management APIs that Android doesn't have.
+# It is never called on Android.
+-dontwarn java.lang.management.**

@@ -1,23 +1,21 @@
 package com.jagapathi.immichtv.ui.main
 
-import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.*
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.tv.material3.*
 import com.jagapathi.immichtv.ui.main.components.MainNavItem
 import com.jagapathi.immichtv.ui.main.components.PeopleGrid
@@ -32,39 +30,16 @@ fun MainScreen(
 ) {
     val activeProfile by viewModel.activeProfile.collectAsState()
     val people by viewModel.people.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
     val credentials = activeProfile?.credentials
-    var selectedTab by remember { mutableStateOf(MainNavItem.Home) }
+    var selectedTab by rememberSaveable { mutableStateOf(MainNavItem.Home) }
     var showLogoutDialog by remember { mutableStateOf(false) }
-    val focusRequester = remember { FocusRequester() }
-    
-    val logoutSuccess by viewModel.logoutSuccessEvent.collectAsState()
-    val errorMessage by viewModel.errorMessage.collectAsState()
-    val context = LocalContext.current
 
-    LaunchedEffect(errorMessage) {
-        errorMessage?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-            viewModel.clearErrorMessage()
-        }
-    }
+    val logoutSuccess by viewModel.logoutSuccessEvent.collectAsState()
 
     LaunchedEffect(logoutSuccess) {
         if (logoutSuccess) {
             viewModel.resetLogoutSuccessEvent()
             onLogoutSuccess()
-        }
-    }
-
-    LaunchedEffect(showLogoutDialog) {
-        if (showLogoutDialog) {
-            focusRequester.requestFocus()
-        }
-    }
-
-    if (showLogoutDialog) {
-        BackHandler {
-            showLogoutDialog = false
         }
     }
 
@@ -131,13 +106,7 @@ fun MainScreen(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (isLoading) {
-                                    CircularProgressIndicator()
-                                } else {
-                                    PeopleGrid(
-                                        people = people
-                                    )
-                                }
+                                PeopleContent(state = people, onRetry = viewModel::retry)
                             }
                         }
                     }
@@ -147,56 +116,101 @@ fun MainScreen(
     }
 
     if (showLogoutDialog) {
-        Box(
+        LogoutDialog(
+            profileName = activeProfile?.name,
+            onDismiss = { showLogoutDialog = false },
+            onConfirm = {
+                showLogoutDialog = false
+                viewModel.logout()
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun PeopleContent(
+    state: PeopleUiState,
+    onRetry: () -> Unit
+) {
+    when (state) {
+        PeopleUiState.Loading -> CircularProgressIndicator()
+        is PeopleUiState.Error -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = state.message,
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = onRetry) {
+                Text("Retry")
+            }
+        }
+        is PeopleUiState.Success -> if (state.people.isEmpty()) {
+            Text(
+                text = "No named people yet. Name people in Immich to see them here.",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center
+            )
+        } else {
+            PeopleGrid(people = state.people)
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun LogoutDialog(
+    profileName: String?,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+
+    // A real Dialog gets its own window, so D-pad focus can't wander to the screen behind it.
+    Dialog(onDismissRequest = onDismiss) {
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+        }
+
+        Surface(
             modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.7f)),
-            contentAlignment = Alignment.Center
+                .width(440.dp)
+                .wrapContentHeight(),
+            shape = MaterialTheme.shapes.extraLarge,
+            colors = SurfaceDefaults.colors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            )
         ) {
-            Surface(
-                modifier = Modifier
-                    .width(440.dp)
-                    .wrapContentHeight(),
-                shape = MaterialTheme.shapes.extraLarge,
-                colors = SurfaceDefaults.colors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                )
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.Start
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.Start
+                Text(
+                    text = "Logout",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Are you sure you want to logout of $profileName?",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Logout",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Are you sure you want to logout of ${activeProfile?.name}?",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.focusRequester(focusRequester)
                     ) {
-                        OutlinedButton(
-                            onClick = { showLogoutDialog = false },
-                            modifier = Modifier.focusRequester(focusRequester)
-                        ) {
-                            Text("Cancel")
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Button(
-                            onClick = {
-                                showLogoutDialog = false
-                                viewModel.logout()
-                            }
-                        ) {
-                            Text("Logout")
-                        }
+                        Text("Cancel")
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Button(onClick = onConfirm) {
+                        Text("Logout")
                     }
                 }
             }

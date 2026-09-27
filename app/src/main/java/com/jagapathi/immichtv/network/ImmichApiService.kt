@@ -1,18 +1,19 @@
 package com.jagapathi.immichtv.network
 
-import androidx.compose.runtime.staticCompositionLocalOf
 import com.jagapathi.immichtv.model.ImmichAlbumDto
 import com.jagapathi.immichtv.model.ImmichPeopleDto
+import com.jagapathi.immichtv.model.ImmichPersonResponseDto
 import com.jagapathi.immichtv.model.ImmichUserDto
 import io.ktor.client.*
 import io.ktor.client.call.*
-import io.ktor.client.engine.cio.*
+import io.ktor.client.engine.okhttp.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
 
 class ImmichApiService(
     private val client: HttpClient = createDefaultClient(),
@@ -65,14 +66,30 @@ class ImmichApiService(
         }
     }
 
-    suspend fun getPeople(): ImmichPeopleDto {
+    suspend fun getPeople(page: Int = 1, size: Int = PEOPLE_PAGE_SIZE): ImmichPeopleDto {
         val url = requireBaseUrl(null)
         val key = requireApiKey(null)
         return withContext(Dispatchers.IO) {
             client.get(getFullUrl(url, "people")) {
                 header("x-api-key", key)
+                parameter("page", page)
+                parameter("size", size)
             }.body()
         }
+    }
+
+    /** Fetches every page of visible people. */
+    suspend fun getAllPeople(): List<ImmichPersonResponseDto> {
+        val people = mutableListOf<ImmichPersonResponseDto>()
+        var page = 1
+        while (true) {
+            val response = getPeople(page)
+            people += response.people
+            // Servers that predate pagination omit hasNextPage and return everyone at once.
+            if (!response.hasNextPage || response.people.isEmpty()) break
+            page++
+        }
+        return people.distinctBy { it.id }
     }
 
     fun getPersonThumbnailUrl(id: String): String {
@@ -81,8 +98,13 @@ class ImmichApiService(
     }
 
     companion object {
-        fun createDefaultClient() = HttpClient(CIO) {
+        const val PEOPLE_PAGE_SIZE = 500
+
+        fun createDefaultClient(okHttpClient: OkHttpClient = OkHttpClient()) = HttpClient(OkHttp) {
             expectSuccess = true
+            engine {
+                preconfigured = okHttpClient
+            }
             install(ContentNegotiation) {
                 json(Json {
                     ignoreUnknownKeys = true
@@ -91,8 +113,4 @@ class ImmichApiService(
             }
         }
     }
-}
-
-val LocalImmichApiService = staticCompositionLocalOf<ImmichApiService> {
-    error("No ImmichApiService provided")
 }

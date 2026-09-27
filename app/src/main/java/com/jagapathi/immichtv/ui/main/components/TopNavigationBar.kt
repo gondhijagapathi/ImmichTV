@@ -1,12 +1,11 @@
 package com.jagapathi.immichtv.ui.main.components
 
+import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -15,24 +14,19 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.DropdownMenu
 import androidx.tv.material3.*
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
 import com.jagapathi.immichtv.R
-import com.jagapathi.immichtv.network.LocalImmichApiService
 
-enum class MainNavItem(@StringRes val titleRes: Int, val icon: ImageVector) {
-    Home(R.string.nav_home, Icons.Default.Home),
-    Albums(R.string.nav_albums, Icons.Default.PhotoAlbum),
-    People(R.string.nav_people, Icons.Default.People)
+enum class MainNavItem(@StringRes val titleRes: Int, @DrawableRes val iconRes: Int) {
+    Home(R.string.nav_home, R.drawable.ic_home),
+    Albums(R.string.nav_albums, R.drawable.ic_photo_album),
+    People(R.string.nav_people, R.drawable.ic_group)
 }
 
 /**
@@ -65,10 +59,12 @@ fun TopNavigationBar(
     modifier: Modifier = Modifier,
     profilePictureUrl: String? = null
 ) {
-    val homeFocusRequester = remember { FocusRequester() }
+    val tabFocusRequesters = remember { MainNavItem.entries.associateWith { FocusRequester() } }
 
+    // Tabs switch content on focus, so focusing anything but the selected tab would change it,
+    // e.g. when coming back from Settings.
     LaunchedEffect(Unit) {
-        homeFocusRequester.requestFocus()
+        tabFocusRequesters.getValue(selectedItem).requestFocus()
     }
 
     val surfaceColor = MaterialTheme.colorScheme.surface
@@ -102,7 +98,7 @@ fun TopNavigationBar(
             NavigationTabs(
                 selectedItem = selectedItem,
                 onItemSelected = onItemSelected,
-                homeFocusRequester = homeFocusRequester
+                tabFocusRequesters = tabFocusRequesters
             )
 
             UtilityActions(
@@ -119,7 +115,7 @@ fun TopNavigationBar(
 private fun NavigationTabs(
     selectedItem: MainNavItem,
     onItemSelected: (MainNavItem) -> Unit,
-    homeFocusRequester: FocusRequester,
+    tabFocusRequesters: Map<MainNavItem, FocusRequester>,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -150,11 +146,7 @@ private fun NavigationTabs(
                     onFocus = { onItemSelected(item) },
                     onClick = { onItemSelected(item) },
                     colors = TabDefaults.pillIndicatorTabColors(),
-                    modifier = if (item == MainNavItem.Home) {
-                        Modifier.focusRequester(homeFocusRequester)
-                    } else {
-                        Modifier
-                    }
+                    modifier = Modifier.focusRequester(tabFocusRequesters.getValue(item))
                 ) {
                     TabContent(item = item)
                 }
@@ -173,7 +165,7 @@ private fun TabContent(item: MainNavItem) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = item.icon,
+            painter = painterResource(item.iconRes),
             contentDescription = null,
             modifier = Modifier.size(TopBarDefaults.IconSize)
         )
@@ -194,7 +186,6 @@ private fun UtilityActions(
     profilePictureUrl: String? = null
 ) {
     var showProfileMenu by remember { mutableStateOf(false) }
-    val apiService = LocalImmichApiService.current
 
     Surface(
         modifier = modifier.wrapContentSize(),
@@ -221,7 +212,7 @@ private fun UtilityActions(
                 )
             ) {
                 Icon(
-                    imageVector = Icons.Default.Settings,
+                    painter = painterResource(R.drawable.ic_settings),
                     contentDescription = stringResource(R.string.settings),
                     modifier = Modifier.size(TopBarDefaults.UtilityIconSize)
                 )
@@ -237,29 +228,15 @@ private fun UtilityActions(
                         focusedContentColor = MaterialTheme.colorScheme.inverseOnSurface
                     )
                 ) {
-                    val context = LocalContext.current
-                    val apiKey = apiService.apiKey
-                    val imageRequest = remember(profilePictureUrl, apiKey) {
-                        ImageRequest.Builder(context)
-                            .data(profilePictureUrl)
-                            .apply {
-                                if (apiKey != null) {
-                                    addHeader("x-api-key", apiKey)
-                                }
-                            }
-                            .crossfade(true)
-                            .build()
-                    }
-
                     AsyncImage(
-                        model = imageRequest,
+                        model = profilePictureUrl,
                         contentDescription = stringResource(R.string.profile),
                         modifier = Modifier
                             .size(TopBarDefaults.ProfileIconSize)
                             .clip(CircleShape),
                         contentScale = ContentScale.Crop,
-                        placeholder = rememberVectorPainter(Icons.Default.AccountCircle),
-                        error = rememberVectorPainter(Icons.Default.AccountCircle)
+                        placeholder = painterResource(R.drawable.ic_account_circle),
+                        error = painterResource(R.drawable.ic_account_circle)
                     )
                 }
 
@@ -292,7 +269,7 @@ private fun UtilityActions(
                             horizontalArrangement = Arrangement.Start
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                painter = painterResource(R.drawable.ic_logout),
                                 contentDescription = null,
                                 modifier = Modifier.size(TopBarDefaults.IconSize)
                             )

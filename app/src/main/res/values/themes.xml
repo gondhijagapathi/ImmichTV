@@ -1,4 +1,4 @@
 <resources>
 
-    <style name="Theme.ImmichTV" parent="Theme.AppCompat.DayNight.NoActionBar" />
+    <style name="Theme.ImmichTV" parent="android:Theme.Material.NoActionBar" />
 </resources>
