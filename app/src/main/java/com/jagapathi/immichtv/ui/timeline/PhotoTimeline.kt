@@ -12,17 +12,13 @@ import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
@@ -30,6 +26,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,30 +35,36 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.paint
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
+import coil3.compose.rememberAsyncImagePainter
+import coil3.compose.rememberConstraintsSizeResolver
 import coil3.request.ImageRequest
+import coil3.size.SizeResolver
 import com.jagapathi.immichtv.R
 import com.jagapathi.immichtv.model.TimelineQuery
 import com.jagapathi.immichtv.ui.components.ColumnFocus
 import com.jagapathi.immichtv.ui.components.ErrorMessage
 import com.jagapathi.immichtv.ui.components.TvBringIntoViewSpec
+import com.jagapathi.immichtv.ui.components.clipDrawing
 import com.jagapathi.immichtv.ui.components.columnFocus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -130,10 +133,10 @@ private fun TimelineContent(
     requestInitialFocus: Boolean,
     header: (@Composable () -> Unit)?
 ) {
-    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val currentLayout by rememberUpdatedState(layout)
-    // Grid indices are shifted by one when there's a header above the photos.
+    // List indices are shifted by one when there's a header above the photos.
     val itemOffset = if (header != null) 1 else 0
 
     // A tile asks for focus when it's composed with this key, e.g. after closing the viewer.
@@ -150,12 +153,15 @@ private fun TimelineContent(
     // Shared by every tile, so tiles whose photo didn't change skip recomposing when a month loads.
     val openViewer = remember { { position: AssetPosition -> viewerPosition = position } }
     val onTileFocusRequested = remember { { pendingFocusKey = null } }
-    val columnFocus = remember { ColumnFocus { currentLayout.rows(TimelineDefaults.Columns) } }
+    val badges = rememberTileBadges()
+    val columnFocus = remember {
+        ColumnFocus(isScrolling = { listState.isScrollInProgress }) { currentLayout.gridRows() }
+    }
 
     // Load the months on screen plus one either side, so moving on rarely waits for the network.
-    LaunchedEffect(gridState, itemOffset) {
+    LaunchedEffect(listState, itemOffset) {
         snapshotFlow {
-            val visible = gridState.layoutInfo.visibleItemsInfo
+            val visible = listState.layoutInfo.visibleItemsInfo
             if (visible.isEmpty()) {
                 IntRange.EMPTY
             } else {
@@ -172,10 +178,10 @@ private fun TimelineContent(
 
     fun focusTile(position: AssetPosition) {
         val layoutNow = currentLayout
-        val index = itemOffset + (layoutNow.itemIndexOf(position) ?: return)
+        val index = itemOffset + (layoutNow.rowIndexOf(position) ?: return)
         scope.launch {
-            if (gridState.layoutInfo.visibleItemsInfo.none { it.index == index }) {
-                gridState.scrollToItem(index)
+            if (listState.layoutInfo.visibleItemsInfo.none { it.index == index }) {
+                listState.scrollToItem(index)
             }
             pendingFocusKey = layoutNow.tileKey(position)
         }
@@ -184,17 +190,17 @@ private fun TimelineContent(
     if (requestInitialFocus) {
         LaunchedEffect(Unit) {
             // Unless the grid was restored to somewhere further down.
-            if (gridState.firstVisibleItemIndex == 0 && currentLayout.assetCount > 0) {
+            if (listState.firstVisibleItemIndex == 0 && currentLayout.assetCount > 0) {
                 pendingFocusKey = currentLayout.tileKey(AssetPosition(0, 0))
             }
         }
     }
 
-    val isScrolledDown by remember { derivedStateOf { gridState.firstVisibleItemIndex > 0 } }
+    val isScrolledDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     // Back from deep in the timeline returns to the newest photos, as on other TV apps.
     BackHandler(enabled = isScrolledDown && viewerPosition == null) {
         scope.launch {
-            gridState.scrollToItem(0)
+            listState.scrollToItem(0)
             if (currentLayout.assetCount > 0) pendingFocusKey = currentLayout.tileKey(AssetPosition(0, 0))
         }
     }
@@ -202,15 +208,15 @@ private fun TimelineContent(
     Box(modifier = Modifier.fillMaxSize()) {
         val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
         CompositionLocalProvider(LocalBringIntoViewSpec provides TvBringIntoViewSpec) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(TimelineDefaults.Columns),
-                state = gridState,
+            // A row of photos at a time: a lazy grid of single photos was too slow to scroll on TVs,
+            // with the lazy layout's work for each item and, up to Android 9, a View behind each.
+            LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(
                     start = TimelineDefaults.HorizontalPadding,
                     end = TimelineDefaults.ScrubberWidth,
                     bottom = TimelineDefaults.HorizontalPadding
                 ),
-                horizontalArrangement = Arrangement.spacedBy(TimelineDefaults.TileSpacing),
                 verticalArrangement = Arrangement.spacedBy(TimelineDefaults.TileSpacing),
                 modifier = Modifier
                     .fillMaxSize()
@@ -218,7 +224,7 @@ private fun TimelineContent(
                     .focusRestorer()
             ) {
                 if (header != null) {
-                    item(key = HeaderKey, span = { GridItemSpan(maxLineSpan) }, contentType = HeaderKey) {
+                    item(key = HeaderKey, contentType = HeaderKey) {
                         // Rows inside the header scroll the usual way.
                         CompositionLocalProvider(LocalBringIntoViewSpec provides defaultBringIntoViewSpec) {
                             header()
@@ -226,25 +232,29 @@ private fun TimelineContent(
                     }
                 }
                 items(
-                    count = layout.items.size,
-                    key = { layout.items[it].key },
-                    span = {
-                        if (layout.items[it] is TimelineItem.Tile) GridItemSpan(1) else GridItemSpan(maxLineSpan)
-                    },
-                    contentType = { layout.items[it]::class }
+                    count = layout.rows.size,
+                    key = { layout.rows[it].key },
+                    contentType = { layout.rows[it].contentType() }
                 ) { index ->
-                    when (val item = layout.items[index]) {
-                        is TimelineItem.MonthHeader -> MonthHeader(item.yearMonth, dateFormats)
-                        is TimelineItem.DayHeader -> DayHeader(item.date, today, dateFormats)
-                        is TimelineItem.Tile -> AssetTile(
-                            asset = item.asset,
-                            thumbnailUrl = item.asset?.let { viewModel.thumbnailUrl(it.id) },
-                            position = item.position,
-                            requestFocus = pendingFocusKey == item.key,
-                            onFocusRequested = onTileFocusRequested,
-                            onClick = openViewer,
-                            columnFocus = columnFocus
-                        )
+                    when (val row = layout.rows[index]) {
+                        is TimelineItem.MonthHeader -> MonthHeader(row.yearMonth, dateFormats)
+                        is TimelineItem.DayHeader -> DayHeader(row.date, today, dateFormats)
+                        is TileRow -> TileRow {
+                            for (tile in row.tiles) {
+                                key(tile.key) {
+                                    AssetTile(
+                                        asset = tile.asset,
+                                        thumbnailUrl = tile.asset?.let { viewModel.thumbnailUrl(it.id) },
+                                        position = tile.position,
+                                        requestFocus = pendingFocusKey == tile.key,
+                                        onFocusRequested = onTileFocusRequested,
+                                        onClick = openViewer,
+                                        columnFocus = columnFocus,
+                                        badges = badges
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -253,10 +263,10 @@ private fun TimelineContent(
         if (layout.months.size > 1) {
             GridScrubber(
                 layout = layout,
-                gridState = gridState,
+                listState = listState,
                 itemOffset = itemOffset,
                 onMonthPreview = { month ->
-                    scope.launch { gridState.scrollToItem(itemOffset + currentLayout.monthHeaderIndex(month)) }
+                    scope.launch { listState.scrollToItem(itemOffset + currentLayout.monthHeaderIndex(month)) }
                 },
                 onMonthSelected = { month -> focusTile(AssetPosition(month, 0)) },
                 onReturn = { gridFocusRequester.requestFocus() },
@@ -306,7 +316,7 @@ private fun TimelineContent(
 @Composable
 private fun GridScrubber(
     layout: TimelineLayout,
-    gridState: LazyGridState,
+    listState: LazyListState,
     itemOffset: Int,
     onMonthPreview: (month: Int) -> Unit,
     onMonthSelected: (month: Int) -> Unit,
@@ -314,16 +324,16 @@ private fun GridScrubber(
     modifier: Modifier = Modifier
 ) {
     val currentLayout by rememberUpdatedState(layout)
-    val position by remember(gridState, itemOffset) {
+    val position by remember(listState, itemOffset) {
         derivedStateOf {
-            val index = gridState.firstVisibleItemIndex - itemOffset
+            val index = listState.firstVisibleItemIndex - itemOffset
             ScrubberPosition(currentLayout.monthAt(index), currentLayout.progressInMonth(index))
         }
     }
     TimelineScrubber(
         months = layout.months,
         position = position,
-        isScrolling = gridState.isScrollInProgress,
+        isScrolling = listState.isScrollInProgress,
         onMonthPreview = onMonthPreview,
         onMonthSelected = onMonthSelected,
         onReturn = onReturn,
@@ -356,9 +366,10 @@ private fun DayHeader(date: LocalDate, today: LocalDate, formats: TimelineDateFo
 }
 
 /**
- * A photo in the grid. Built from plain modifiers rather than a TV Material `Surface`, which is
- * too heavy for a grid this size: each row that scrolls in composes seven tiles, and the Surface
- * also recomposes on every frame of its focus animation.
+ * A photo in the grid: a single layout node, with the thumbnail and badges drawn onto it. Built
+ * from plain modifiers rather than a TV Material `Surface` or child composables, which are too
+ * heavy for a grid this size: each row that scrolls in composes seven tiles, and every tile on
+ * screen is placed again on each frame of scrolling.
  */
 @Composable
 private fun AssetTile(
@@ -368,7 +379,8 @@ private fun AssetTile(
     requestFocus: Boolean,
     onFocusRequested: () -> Unit,
     onClick: (AssetPosition) -> Unit,
-    columnFocus: ColumnFocus<AssetPosition>
+    columnFocus: ColumnFocus<AssetPosition>,
+    badges: TileBadges
 ) {
     val focusRequester = remember { FocusRequester() }
 
@@ -379,6 +391,22 @@ private fun AssetTile(
         }
     }
 
+    val content = if (asset == null) {
+        Modifier
+    } else {
+        val description = listOfNotNull(
+            if (asset.duration != null) stringResource(R.string.video) else null,
+            if (asset.isFavorite) stringResource(R.string.favorite) else null
+        ).joinToString()
+        // Loads the thumbnail at the tile's size, as AsyncImage does.
+        val sizeResolver = rememberConstraintsSizeResolver()
+        val thumbnail = rememberThumbnailPainter(asset, thumbnailUrl, sizeResolver)
+        Modifier
+            .then(sizeResolver)
+            .paint(thumbnail, sizeToIntrinsics = false, contentScale = ContentScale.Crop)
+            .assetBadges(asset, badges)
+            .then(if (description.isEmpty()) Modifier else Modifier.semantics { contentDescription = description })
+    }
     Box(
         modifier = Modifier
             .focusIndication(focusedGrowth = TileFocusGrowth, border = TileFocusBorder, shape = TimelineDefaults.TileShape)
@@ -386,70 +414,56 @@ private fun AssetTile(
             .focusRequester(focusRequester)
             .columnFocus(position, columnFocus)
             .clickable(interactionSource = null, indication = null) { onClick(position) }
-            .clip(TimelineDefaults.TileShape)
+            .clipDrawing(TimelineDefaults.TileShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        if (asset == null) return@Box
+            .then(content)
+    )
+}
 
-        val context = LocalPlatformContext.current
-        val request = remember(thumbnailUrl) {
-            // An explicit cache key lets the viewer reuse this thumbnail while its preview loads.
-            ImageRequest.Builder(context).data(thumbnailUrl).memoryCacheKey(thumbnailUrl).build()
-        }
-        val placeholder = rememberThumbHashPainter(asset.thumbhash)
-        AsyncImage(
-            model = request,
-            contentDescription = null,
-            placeholder = placeholder,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+/** [asset]'s thumbnail, over its blurry placeholder until it loads. */
+@Composable
+private fun rememberThumbnailPainter(asset: TimelineAsset, thumbnailUrl: String?, sizeResolver: SizeResolver): Painter {
+    val context = LocalPlatformContext.current
+    val request = remember(thumbnailUrl, sizeResolver) {
+        // An explicit cache key lets the viewer reuse this thumbnail while its preview loads.
+        ImageRequest.Builder(context).data(thumbnailUrl).memoryCacheKey(thumbnailUrl).size(sizeResolver).build()
+    }
+    return rememberAsyncImagePainter(
+        model = request,
+        placeholder = rememberThumbHashPainter(asset.thumbhash),
+        contentScale = ContentScale.Crop
+    )
+}
 
-        if (asset.duration != null || asset.isFavorite) {
-            // Keeps the white badges readable on bright photos.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.35f),
-                            0.3f to Color.Transparent,
-                            0.7f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.35f)
-                        )
-                    )
-            )
-        }
-        asset.duration?.let { duration ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp)
-            ) {
-                Text(
-                    text = formatDuration(duration),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White
-                )
-                Icon(
-                    painter = painterResource(R.drawable.ic_play_arrow),
-                    contentDescription = stringResource(R.string.video),
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-        if (asset.isFavorite) {
-            Icon(
-                painter = painterResource(R.drawable.ic_favorite),
-                contentDescription = stringResource(R.string.favorite),
-                tint = Color.White,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(6.dp)
-                    .size(16.dp)
-            )
+// The list asks for these often while scrolling, and `row::class` would allocate each time.
+private fun TimelineRow.contentType(): Int = when (this) {
+    is TimelineItem.MonthHeader -> 0
+    is TimelineItem.DayHeader -> 1
+    is TileRow -> 2
+}
+
+/**
+ * Lays tiles out side by side in [TimelineDefaults.Columns] equal columns, sharing the width out as
+ * a grid does, so a short row lines up with full ones.
+ */
+@Composable
+private fun TileRow(content: @Composable () -> Unit) {
+    Layout(content = content, measurePolicy = TileRowMeasurePolicy)
+}
+
+private val TileRowMeasurePolicy = MeasurePolicy { measurables, constraints ->
+    val columns = TimelineDefaults.Columns
+    val spacing = TimelineDefaults.TileSpacing.roundToPx()
+    // Any pixels left over go to the first columns, one each, as in LazyVerticalGrid.
+    val available = constraints.maxWidth - spacing * (columns - 1)
+    val placeables = measurables.mapIndexed { column, measurable ->
+        measurable.measure(Constraints.fixedWidth(available / columns + if (column < available % columns) 1 else 0))
+    }
+    layout(constraints.maxWidth, placeables.maxOfOrNull { it.height } ?: 0) {
+        var x = 0
+        for (placeable in placeables) {
+            placeable.place(x, 0)
+            x += placeable.width + spacing
         }
     }
 }

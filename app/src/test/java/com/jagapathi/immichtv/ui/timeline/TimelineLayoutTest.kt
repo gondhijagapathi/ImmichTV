@@ -32,7 +32,7 @@ class TimelineLayoutTest {
 
     @Test
     fun `groups loaded months by day and shows placeholders for the rest`() {
-        val layout = TimelineLayout(listOf(may, april))
+        val layout = TimelineLayout(listOf(may, april), columns = 7)
 
         val cells = layout.items.map {
             when (it) {
@@ -54,9 +54,9 @@ class TimelineLayoutTest {
 
     @Test
     fun `a placeholder keeps its key once its month loads`() {
-        val before = TimelineLayout(listOf(may, april))
+        val before = TimelineLayout(listOf(may, april), columns = 7)
         val loadedApril = april.copy(assets = listOf(asset("d", 9, 4), asset("e", 1, 4)))
-        val after = TimelineLayout(listOf(may, loadedApril))
+        val after = TimelineLayout(listOf(may, loadedApril), columns = 7)
 
         val position = AssetPosition(1, 1)
         assertEquals(before.tileKey(position), after.tileKey(position))
@@ -65,14 +65,17 @@ class TimelineLayoutTest {
     }
 
     @Test
-    fun `finds the month of any cell`() {
-        val layout = TimelineLayout(listOf(may, april))
+    fun `finds the month of any row`() {
+        val layout = TimelineLayout(listOf(may, april), columns = 7)
 
+        // May's header, its two days' headers and rows, then April's header and row.
+        assertEquals(7, layout.rows.size)
         assertEquals(0, layout.monthAt(-1))
         assertEquals(0, layout.monthAt(0))
-        assertEquals(0, layout.monthAt(5))
+        assertEquals(0, layout.monthAt(4))
+        assertEquals(5, layout.monthHeaderIndex(1))
         assertEquals(1, layout.monthAt(layout.monthHeaderIndex(1)))
-        assertEquals(1, layout.monthAt(layout.items.lastIndex))
+        assertEquals(1, layout.monthAt(layout.rows.lastIndex))
         assertEquals(1, layout.monthAt(1000))
         assertEquals(0f, layout.progressInMonth(0))
         assertTrue(layout.progressInMonth(4) in 0.5f..1f)
@@ -80,7 +83,7 @@ class TimelineLayoutTest {
 
     @Test
     fun `steps through assets across month boundaries`() {
-        val layout = TimelineLayout(listOf(may, april))
+        val layout = TimelineLayout(listOf(may, april), columns = 7)
 
         assertEquals(AssetPosition(1, 0), layout.positionAfter(AssetPosition(0, 2)))
         assertEquals(AssetPosition(0, 2), layout.positionBefore(AssetPosition(1, 0)))
@@ -94,7 +97,7 @@ class TimelineLayoutTest {
     fun `skips months that came back empty`() {
         // e.g. everything in April was deleted between listing the months and loading them.
         val march = TimelineMonth("2024-03-01", YearMonth.of(2024, 3), 1, listOf(asset("f", 2, 3)))
-        val layout = TimelineLayout(listOf(may, april.copy(assets = emptyList()), march))
+        val layout = TimelineLayout(listOf(may, april.copy(assets = emptyList()), march), columns = 7)
 
         assertNull(layout.itemIndexOf(AssetPosition(1, 0)))
         assertEquals(AssetPosition(2, 0), layout.positionAfter(AssetPosition(0, 2)))
@@ -104,7 +107,7 @@ class TimelineLayoutTest {
     @Test
     fun `keeps positions inside months that turned out smaller`() {
         // The server counted two assets, but only one came back.
-        val layout = TimelineLayout(listOf(may, april.copy(assets = listOf(asset("d", 9, 4)))))
+        val layout = TimelineLayout(listOf(may, april.copy(assets = listOf(asset("d", 9, 4)))), columns = 7)
 
         assertEquals(AssetPosition(1, 0), layout.coerce(AssetPosition(1, 1)))
         assertEquals(AssetPosition(0, 1), layout.coerce(AssetPosition(0, 1)))
@@ -121,10 +124,46 @@ class TimelineLayoutTest {
             TimelineMonth("2024-06-01", YearMonth.of(2024, 6), 10, photos(6, 20 to 5, 18 to 1, 10 to 4)),
             TimelineMonth("2024-04-01", YearMonth.of(2024, 4), 1, emptyList()),
             TimelineMonth("2024-03-01", YearMonth.of(2024, 3), 2, photos(3, 2 to 2))
-        )
+        ),
+        columns = 3
     )
 
-    private val rows = gridLayout.rows(columns = 3)
+    private val rows = gridLayout.gridRows()
+
+    @Test
+    fun `lists the grid a row at a time`() {
+        val lines = gridLayout.rows.map { row ->
+            when (row) {
+                is TimelineItem.MonthHeader -> "month ${row.yearMonth}"
+                is TimelineItem.DayHeader -> "day ${row.date}"
+                is TileRow -> row.tiles.joinToString(prefix = "tiles ") { "${it.position.month}.${it.position.index}" }
+            }
+        }
+        assertEquals(
+            listOf(
+                "month 2024-07", "tiles 0.0, 0.1, 0.2", "tiles 0.3",
+                "month 2024-06", "day 2024-06-20", "tiles 1.0, 1.1, 1.2", "tiles 1.3, 1.4",
+                "day 2024-06-18", "tiles 1.5", "day 2024-06-10", "tiles 1.6, 1.7, 1.8", "tiles 1.9",
+                "month 2024-04",
+                "month 2024-03", "day 2024-03-02", "tiles 3.0, 3.1"
+            ),
+            lines
+        )
+        assertEquals(lines.size, gridLayout.rows.map { it.key }.toSet().size)
+    }
+
+    @Test
+    fun `finds the row of every asset`() {
+        gridLayout.rows.forEachIndexed { index, row ->
+            if (row !is TileRow) return@forEachIndexed
+            row.tiles.forEachIndexed { column, tile ->
+                assertEquals(index, gridLayout.rowIndexOf(tile.position))
+                // The rows match the ones that moving focus up and down goes by.
+                assertEquals(column, rows.columnOf(tile.position))
+            }
+        }
+        assertNull(gridLayout.rowIndexOf(AssetPosition(2, 0)))
+    }
 
     private fun walk(from: AssetPosition, column: Int, step: GridRows<AssetPosition>.(AssetPosition, Int) -> AssetPosition?) =
         generateSequence(from) { rows.step(it, column) }.toList()

@@ -23,37 +23,64 @@ data class AssetPosition(val month: Int, val index: Int)
 sealed interface TimelineItem {
     val key: String
 
-    data class MonthHeader(val yearMonth: YearMonth, override val key: String) : TimelineItem
+    data class MonthHeader(val yearMonth: YearMonth, override val key: String) : TimelineItem, TimelineRow
 
-    data class DayHeader(val date: LocalDate, override val key: String) : TimelineItem
+    data class DayHeader(val date: LocalDate, override val key: String) : TimelineItem, TimelineRow
 
     /** A photo, or a placeholder while its month loads ([asset] is null). */
     data class Tile(val position: AssetPosition, val asset: TimelineAsset?, override val key: String) : TimelineItem
 }
 
+/** A row of the timeline grid: a month's or a day's header, or a [TileRow]. */
+sealed interface TimelineRow {
+    val key: String
+}
+
+/** Up to a row's worth of one day's tiles, or of the placeholders of a month that hasn't loaded. */
+data class TileRow(val tiles: List<TimelineItem.Tile>, override val key: String) : TimelineRow
+
 /**
- * Lays the months out as grid cells: a header per month, a header per day once the month is
- * loaded, and a tile per asset. Tile keys depend only on the asset's position, so a placeholder
- * turns into its photo in place and keeps focus when the month finishes loading.
+ * Lays the months out as a grid [columns] wide: a header per month, a header per day once the
+ * month is loaded, and a tile per asset. Every header starts a new row, so a day's photos, or a
+ * month's until it has loaded, start in the first column.
+ *
+ * The grid is listed both cell by cell ([items]) and row by row ([rows]). The timeline shows it a
+ * row at a time, which is much cheaper to scroll than a lazy grid of single photos.
+ *
+ * Tile keys depend only on the asset's position, so a placeholder turns into its photo in place
+ * when the month finishes loading.
  */
-class TimelineLayout(val months: List<TimelineMonth>) {
+class TimelineLayout(val months: List<TimelineMonth>, val columns: Int) {
     val items: List<TimelineItem>
-    private val monthStarts = IntArray(months.size)
+    val rows: List<TimelineRow>
+    private val monthRows = IntArray(months.size)
     private val assetsBefore = IntArray(months.size)
     private val tileIndices: Array<IntArray>
+    private val tileRows: Array<IntArray> = Array(months.size) { IntArray(months[it].size) }
 
     /** Number of assets on the whole timeline. */
     val assetCount: Int
 
     init {
         val cells = ArrayList<TimelineItem>(months.sumOf { it.size + 1 })
+        val lines = ArrayList<TimelineRow>()
+        val row = ArrayList<TimelineItem.Tile>(columns)
+        fun endRow() {
+            if (row.isEmpty()) return
+            for (tile in row) tileRows[tile.position.month][tile.position.index] = lines.size
+            lines += TileRow(row.toList(), "row:${row[0].key}")
+            row.clear()
+        }
+
         var total = 0
         tileIndices = Array(months.size) { m ->
             val month = months[m]
-            monthStarts[m] = cells.size
+            monthRows[m] = lines.size
             assetsBefore[m] = total
             total += month.size
-            cells += TimelineItem.MonthHeader(month.yearMonth, "month:${month.bucket}")
+            val monthHeader = TimelineItem.MonthHeader(month.yearMonth, "month:${month.bucket}")
+            cells += monthHeader
+            lines += monthHeader
 
             val indices = IntArray(month.size)
             var day: LocalDate? = null
@@ -62,38 +89,51 @@ class TimelineLayout(val months: List<TimelineMonth>) {
                 val assetDay = asset?.takenAt?.toLocalDate()
                 if (assetDay != null && assetDay != day) {
                     day = assetDay
-                    cells += TimelineItem.DayHeader(assetDay, "day:${month.bucket}:$assetDay")
+                    endRow()
+                    val dayHeader = TimelineItem.DayHeader(assetDay, "day:${month.bucket}:$assetDay")
+                    cells += dayHeader
+                    lines += dayHeader
                 }
                 indices[i] = cells.size
-                cells += TimelineItem.Tile(AssetPosition(m, i), asset, tileKey(month, i))
+                val tile = TimelineItem.Tile(AssetPosition(m, i), asset, tileKey(month, i))
+                cells += tile
+                row += tile
+                if (row.size == columns) endRow()
             }
+            endRow()
             indices
         }
         items = cells
+        rows = lines
         assetCount = total
     }
 
-    fun monthHeaderIndex(month: Int): Int = monthStarts[month]
+    /** The row of the [month]-th month's header. */
+    fun monthHeaderIndex(month: Int): Int = monthRows[month]
 
     /** The cell of the asset at [position], or null if there's no such asset (e.g. an empty month). */
     fun itemIndexOf(position: AssetPosition): Int? =
         tileIndices.getOrNull(position.month)?.getOrNull(position.index)
 
+    /** The row of the asset at [position], or null if there's no such asset (e.g. an empty month). */
+    fun rowIndexOf(position: AssetPosition): Int? =
+        tileRows.getOrNull(position.month)?.getOrNull(position.index)
+
     fun tileKey(position: AssetPosition): String = tileKey(months[position.month], position.index)
 
-    /** The month that the cell at [itemIndex] belongs to. */
-    fun monthAt(itemIndex: Int): Int {
+    /** The month that the row at [rowIndex] belongs to. */
+    fun monthAt(rowIndex: Int): Int {
         if (months.isEmpty()) return 0
-        val found = monthStarts.binarySearch(itemIndex.coerceAtLeast(0))
+        val found = monthRows.binarySearch(rowIndex.coerceAtLeast(0))
         return if (found >= 0) found else -found - 2
     }
 
-    /** How far through its month the cell at [itemIndex] is, from 0 to 1. */
-    fun progressInMonth(itemIndex: Int): Float {
-        val month = monthAt(itemIndex)
-        val start = monthStarts.getOrElse(month) { return 0f }
-        val end = monthStarts.getOrElse(month + 1) { items.size }
-        return ((itemIndex - start).toFloat() / (end - start)).coerceIn(0f, 1f)
+    /** How far through its month the row at [rowIndex] is, from 0 to 1. */
+    fun progressInMonth(rowIndex: Int): Float {
+        val month = monthAt(rowIndex)
+        val start = monthRows.getOrElse(month) { return 0f }
+        val end = monthRows.getOrElse(month + 1) { rows.size }
+        return ((rowIndex - start).toFloat() / (end - start)).coerceIn(0f, 1f)
     }
 
     fun assetAt(position: AssetPosition): TimelineAsset? =
@@ -122,11 +162,8 @@ class TimelineLayout(val months: List<TimelineMonth>) {
     /** Where [position] falls on the whole timeline, counting from 0. */
     fun overallIndexOf(position: AssetPosition): Int = assetsBefore[position.month] + position.index
 
-    /**
-     * The rows of this timeline in a grid [columns] wide. Every header starts a new row, so a day's
-     * photos, or a month's until it has loaded, start in the first column.
-     */
-    internal fun rows(columns: Int): GridRows<AssetPosition> =
+    /** Finds the tiles above and below each other, for moving focus up and down the grid. */
+    internal fun gridRows(): GridRows<AssetPosition> =
         GridRows(columns, items.size, cellAt = { (items[it] as? TimelineItem.Tile)?.position }, indexOf = ::itemIndexOf)
 
     private fun tileKey(month: TimelineMonth, index: Int) = "asset:${month.bucket}:$index"

@@ -113,7 +113,7 @@ private fun AlbumsGrid(
     val gridState = rememberLazyGridState()
     val currentOnAlbumFocused by rememberUpdatedState(onAlbumFocused)
     val rows by rememberUpdatedState(remember(groups) { albumRows(groups, AlbumsDefaults.Columns) })
-    val columnFocus = remember { ColumnFocus { rows } }
+    val columnFocus = remember { ColumnFocus(isScrolling = { gridState.isScrollInProgress }) { rows } }
 
     // A card can only take focus once it's composed, so scroll it into view first if needed.
     LaunchedEffect(focusAlbumId, groups) {
