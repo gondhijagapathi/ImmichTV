@@ -370,7 +370,7 @@ private fun AssetTile(
 
     Box(
         modifier = Modifier
-            .focusIndication(focusedScale = 1.1f, border = TileFocusBorder, shape = TimelineDefaults.TileShape)
+            .focusIndication(focusedGrowth = TileFocusGrowth, border = TileFocusBorder, shape = TimelineDefaults.TileShape)
             .aspectRatio(1f)
             .focusRequester(focusRequester)
             .clickable(interactionSource = null, indication = null) { onClick(position) }
@@ -451,6 +451,8 @@ private const val HeaderKey = "header"
 private const val MonthLoadDelayMillis = 150L
 
 private val TileFocusBorder = BorderStroke(3.dp, Color.White)
+// Grows into the gap around the tile, leaving about 1dp between its outline and the next tile.
+private val TileFocusGrowth = TimelineDefaults.TileSpacing - TileFocusBorder.width / 2 - 1.dp
 
 internal object TimelineDefaults {
     const val Columns = 7
