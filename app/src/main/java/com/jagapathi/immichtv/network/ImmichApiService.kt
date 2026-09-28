@@ -3,6 +3,7 @@ package com.jagapathi.immichtv.network
 import com.jagapathi.immichtv.model.ImmichAlbumDto
 import com.jagapathi.immichtv.model.ImmichPeopleDto
 import com.jagapathi.immichtv.model.ImmichPersonResponseDto
+import com.jagapathi.immichtv.model.ImmichPersonStatisticsDto
 import com.jagapathi.immichtv.model.ImmichUserDto
 import com.jagapathi.immichtv.model.TimeBucketAssetsDto
 import com.jagapathi.immichtv.model.TimeBucketDto
@@ -12,6 +13,7 @@ import io.ktor.client.call.*
 import io.ktor.client.engine.okhttp.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
+import io.ktor.http.encodeURLQueryComponent
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -19,6 +21,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import java.time.Instant
 
 class ImmichApiService(
     private val client: HttpClient = createDefaultClient(),
@@ -121,9 +124,35 @@ class ImmichApiService(
         return people.distinctBy { it.id }
     }
 
-    fun getPersonThumbnailUrl(id: String): String {
+    suspend fun getPerson(id: String): ImmichPersonResponseDto {
         val url = requireBaseUrl(null)
-        return getFullUrl(url, "people/$id/thumbnail")
+        val key = requireApiKey(null)
+        return withContext(Dispatchers.IO) {
+            client.get(getFullUrl(url, "people/$id")) {
+                header("x-api-key", key)
+            }.body()
+        }
+    }
+
+    /** Counts the photos and videos of a person, leaving out archived ones as the timeline does. */
+    suspend fun getPersonStatistics(id: String): ImmichPersonStatisticsDto {
+        val url = requireBaseUrl(null)
+        val key = requireApiKey(null)
+        return withContext(Dispatchers.IO) {
+            client.get(getFullUrl(url, "people/$id/statistics")) {
+                header("x-api-key", key)
+            }.body()
+        }
+    }
+
+    /**
+     * [updatedAt] changes the URL when the person's face photo does, so a cached copy isn't shown.
+     * The Immich web app does the same.
+     */
+    fun getPersonThumbnailUrl(id: String, updatedAt: Instant? = null): String {
+        val url = requireBaseUrl(null)
+        val thumbnailUrl = getFullUrl(url, "people/$id/thumbnail")
+        return if (updatedAt == null) thumbnailUrl else "$thumbnailUrl?updatedAt=${updatedAt.toString().encodeURLQueryComponent()}"
     }
 
     /** Lists the months that have assets matching [query], newest first. */

@@ -55,6 +55,7 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.jagapathi.immichtv.R
 import com.jagapathi.immichtv.ui.components.ErrorMessage
+import com.jagapathi.immichtv.ui.components.itemCount
 import com.jagapathi.immichtv.ui.components.TvBringIntoViewSpec
 import kotlinx.coroutines.flow.first
 

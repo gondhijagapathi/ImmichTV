@@ -45,6 +45,11 @@ PLACES = [
 ]
 RATIOS = [4 / 3, 3 / 4, 16 / 9, 1.0, 9 / 16, 3 / 2]
 PEOPLE = ["Asha", "Ravi", "Meera", "Karthik", "Lakshmi"]
+# Birthdays and favorites for some of PEOPLE, to see them on their pages and first in the list.
+BIRTH_DATES = {"Asha": "1990-04-12", "Ravi": "1987-11-03"}
+FAVORITE_PEOPLE = {"Meera"}
+# Listed after PEOPLE: a name too long to fit under a face, and someone Immich found but nobody named.
+EXTRA_PEOPLE = ["Venkata Subrahmanyam Chandrasekhar", ""]
 ALBUM_NAMES = ["Goa trip", "Diwali at home", "Tokyo", "Karthik's birthday", "Weekend in Paris", "Monsoon walks",
                "New York", "Graduation day", "Hyderabad food crawl", "Family reunion", "London"]
 PREVIEW_SIZE = 1440
@@ -171,6 +176,13 @@ class Library:
              "color": hex_color(random_color(rng, 0.5))}
             for name in PEOPLE
         ]
+        # A separate generator, so adding people doesn't change the rest of the library.
+        people_rng = random.Random(seed + 1)
+        self.people += [
+            {"id": str(uuid.UUID(int=people_rng.getrandbits(128), version=4)), "name": name,
+             "color": hex_color(random_color(people_rng, 0.5))}
+            for name in EXTRA_PEOPLE
+        ]
         today = date.today()
         start = today - timedelta(days=365 * years)
 
@@ -274,9 +286,17 @@ class Library:
         elif params.get("isFavorite") == "false":
             assets = [asset for asset in assets if not asset["is_favorite"]]
         if params.get("personId"):
-            # Pretend everyone is in every fifth photo.
-            assets = assets[::5]
+            person_ids = self.person_asset_ids(params["personId"])
+            assets = [asset for asset in assets if asset["id"] in person_ids]
         return assets
+
+    def person(self, person_id):
+        return next((person for person in self.people if person["id"] == person_id), None)
+
+    def person_asset_ids(self, person_id):
+        """Pretends each person is in a different share of the photos: the first in every third, and so on."""
+        index = next((i for i, person in enumerate(self.people) if person["id"] == person_id), None)
+        return set() if index is None else {asset["id"] for asset in self.assets[index::index + 3]}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -331,17 +351,26 @@ class Handler(BaseHTTPRequestHandler):
                                        "error": "Bad Request"}, HTTPStatus.BAD_REQUEST)
             return self.send_json(self.album_response(album))
         if path == "/people":
-            people = [{"id": person["id"], "name": person["name"], "isHidden": False, "isFavorite": False,
-                       "thumbnailPath": f"/people/{person['id']}.jpeg", "birthDate": None,
-                       "updatedAt": "2025-01-01T00:00:00.000Z", "color": person["color"]}
-                      for person in self.library.people]
-            return self.send_json({"people": people, "total": len(people), "hidden": 0, "hasNextPage": False})
-        if len(parts) == 3 and parts[0] == "people" and parts[2] == "thumbnail":
-            person = next((p for p in self.library.people if p["id"] == parts[1]), None)
+            # Immich's order: favorites, then named people, then those in the most photos.
+            people = sorted(self.library.people, key=lambda person: (
+                person["name"] not in FAVORITE_PEOPLE, not person["name"],
+                -len(self.library.person_asset_ids(person["id"]))))
+            return self.send_json({"people": [self.person_response(person) for person in people],
+                                   "total": len(people), "hidden": 0, "hasNextPage": False})
+        if parts[0] == "people" and len(parts) in (2, 3):
+            person = self.library.person(parts[1])
+            if len(parts) == 3 and parts[2] == "thumbnail":
+                if person is None:
+                    return self.not_found()
+                return self.send_image(f"person-{person['id']}",
+                                       lambda out: self.render_avatar(out, person["color"], person["name"][:1] or "?"))
             if person is None:
-                return self.not_found()
-            return self.send_image(f"person-{person['id']}",
-                                   lambda out: self.render_avatar(out, person["color"], person["name"][:1]))
+                return self.send_json({"message": "Not found or no person.read access", "statusCode": 400,
+                                       "error": "Bad Request"}, HTTPStatus.BAD_REQUEST)
+            if len(parts) == 2:
+                return self.send_json(self.person_response(person))
+            if parts[2] == "statistics":
+                return self.send_json({"assets": len(self.library.person_asset_ids(person["id"]))})
         if path == "/timeline/buckets":
             counts = {}
             for asset in self.library.filtered(params):
@@ -408,6 +437,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def is_shared(self, album):
         return album["owner"] is not self.library.me or bool(album["shared_with"])
+
+    def person_response(self, person):
+        return {"id": person["id"], "name": person["name"], "isHidden": False,
+                "isFavorite": person["name"] in FAVORITE_PEOPLE, "thumbnailPath": f"/people/{person['id']}.jpeg",
+                "birthDate": BIRTH_DATES.get(person["name"]), "updatedAt": "2025-01-01T00:00:00.000Z",
+                "color": person["color"]}
 
     def album_response(self, album):
         def user(u):

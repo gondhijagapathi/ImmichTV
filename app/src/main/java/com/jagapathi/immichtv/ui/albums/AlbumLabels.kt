@@ -7,20 +7,11 @@ import android.icu.util.TimeZone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.jagapathi.immichtv.R
 import java.text.FieldPosition
-import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.ZoneOffset
-
-/** e.g. "1 item" or "1,234 items". */
-@Composable
-internal fun itemCount(count: Int): String {
-    val numberFormat = remember { NumberFormat.getIntegerInstance() }
-    return pluralStringResource(R.plurals.album_items, count, numberFormat.format(count))
-}
 
 /** "Shared by Asha" for someone else's album, "Shared" for the user's own shared one, else null. */
 @Composable

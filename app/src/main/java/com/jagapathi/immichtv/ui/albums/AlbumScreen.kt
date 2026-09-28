@@ -21,6 +21,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.jagapathi.immichtv.R
 import com.jagapathi.immichtv.ui.components.ErrorMessage
+import com.jagapathi.immichtv.ui.components.itemCount
 import com.jagapathi.immichtv.ui.timeline.PhotoTimeline
 
 /** An album's page: its name and details pinned at the top, and its photos below. */

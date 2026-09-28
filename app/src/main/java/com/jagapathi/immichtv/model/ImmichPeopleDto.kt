@@ -26,3 +26,9 @@ data class ImmichPersonResponseDto(
     val thumbnailPath: String? = null,
     @Serializable(with = InstantSerializer::class) val updatedAt: Instant? = null
 )
+
+@Serializable
+data class ImmichPersonStatisticsDto(
+    /** How many photos and videos show the person. */
+    val assets: Int = 0
+)
