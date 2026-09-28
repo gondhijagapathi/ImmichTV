@@ -216,6 +216,39 @@ class ImmichApiServiceTest {
     }
 
     @Test
+    fun `getPerson and getPersonStatistics fetch one person`() = runBlocking {
+        val requests = Collections.synchronizedList(mutableListOf<String>())
+        val client = jsonClient { request ->
+            requests += request.url.toString()
+            val body = if (request.url.encodedPath.endsWith("statistics")) {
+                """{"assets": 42}"""
+            } else {
+                """{"id": "p1", "name": "Alice", "birthDate": null, "isHidden": false, "thumbnailPath": "/t/1.jpeg"}"""
+            }
+            respond(body, HttpStatusCode.OK, jsonHeaders)
+        }
+        val apiService = ImmichApiService(client, mockConfig)
+
+        assertEquals("Alice", apiService.getPerson("p1").name)
+        assertEquals(42, apiService.getPersonStatistics("p1").assets)
+        assertEquals(
+            listOf("http://localhost/api/people/p1", "http://localhost/api/people/p1/statistics"),
+            requests
+        )
+    }
+
+    @Test
+    fun `person thumbnail URLs change when the person is updated`() {
+        val apiService = ImmichApiService(jsonClient { error("No requests expected") }, mockConfig)
+
+        assertEquals("http://localhost/api/people/p1/thumbnail", apiService.getPersonThumbnailUrl("p1"))
+        assertEquals(
+            "http://localhost/api/people/p1/thumbnail?updatedAt=2024-05-01T10:00:00.123Z",
+            apiService.getPersonThumbnailUrl("p1", Instant.parse("2024-05-01T10:00:00.123Z"))
+        )
+    }
+
+    @Test
     fun `timeline requests send only the filters that are set`() = runBlocking {
         val requests = mutableListOf<HttpRequestData>()
         val client = jsonClient { request ->

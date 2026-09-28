@@ -30,10 +30,13 @@
     <string name="albums_empty">No albums yet. Albums you create in Immich, or that others share with you, will show up here.</string>
     <string name="albums_empty_group">Empty albums</string>
     <string name="album_empty">This album is empty.</string>
-    <plurals name="album_items">
+    <plurals name="item_count">
         <item quantity="one">%s item</item>
         <item quantity="other">%s items</item>
     </plurals>
     <string name="album_shared">Shared</string>
     <string name="album_shared_by">Shared by %1$s</string>
+    <string name="people_empty">No named people yet. Name people in Immich to see them here.</string>
+    <string name="person_empty">No photos of %1$s.</string>
+    <string name="person_born">Born on %1$s</string>
 </resources>

@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -14,18 +13,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.*
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.tv.material3.*
-import com.jagapathi.immichtv.R
 import com.jagapathi.immichtv.model.TimelineQuery
 import com.jagapathi.immichtv.ui.albums.AlbumsScreen
-import com.jagapathi.immichtv.ui.components.ErrorMessage
 import com.jagapathi.immichtv.ui.main.components.MainNavItem
-import com.jagapathi.immichtv.ui.main.components.PeopleGrid
 import com.jagapathi.immichtv.ui.main.components.TopNavigationBar
+import com.jagapathi.immichtv.ui.people.PeopleScreen
 import com.jagapathi.immichtv.ui.timeline.PhotoTimeline
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
@@ -34,18 +29,18 @@ fun MainScreen(
     viewModel: MainViewModel,
     onNavigateToSettings: () -> Unit,
     onOpenAlbum: (albumId: String) -> Unit,
+    onOpenPerson: (personId: String) -> Unit,
     onLogoutSuccess: () -> Unit
 ) {
     val activeProfile by viewModel.activeProfile.collectAsState()
-    val people by viewModel.people.collectAsState()
     var selectedTab by rememberSaveable { mutableStateOf(MainNavItem.Home) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
-    // The album opened from here, kept while it's open. When this screen comes back, its card
-    // takes focus from the tabs, which still take it first so that moving up from the grid lands
-    // on the selected tab. remember reads it only then, not as the album opens.
-    var openedAlbumId by rememberSaveable { mutableStateOf<String?>(null) }
-    var albumToRefocus by remember { mutableStateOf(openedAlbumId) }
+    // The album or person opened from here, kept while their page is open. When this screen comes
+    // back, their card takes focus from the tabs, which still take it first so that moving up from
+    // the grid lands on the selected tab. remember reads it only then, not as the page opens.
+    var openedItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    var itemToRefocus by remember { mutableStateOf(openedItemId) }
 
     val logoutSuccess by viewModel.logoutSuccessEvent.collectAsState()
 
@@ -86,16 +81,18 @@ fun MainScreen(
                     tabStateHolder.SaveableStateProvider(targetTab.name) {
                         TabContent(
                             tab = targetTab,
-                            people = people,
-                            onRetryPeople = viewModel::retry,
                             onOpenAlbum = { albumId ->
-                                openedAlbumId = albumId
+                                openedItemId = albumId
                                 onOpenAlbum(albumId)
                             },
-                            albumToFocus = albumToRefocus,
-                            onAlbumFocused = {
-                                albumToRefocus = null
-                                openedAlbumId = null
+                            onOpenPerson = { personId ->
+                                openedItemId = personId
+                                onOpenPerson(personId)
+                            },
+                            itemToFocus = itemToRefocus,
+                            onItemFocused = {
+                                itemToRefocus = null
+                                openedItemId = null
                             }
                         )
                     }
@@ -116,54 +113,27 @@ fun MainScreen(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+/** [itemToFocus] is the album or person to focus once their card is on screen. */
 @Composable
 private fun TabContent(
     tab: MainNavItem,
-    people: PeopleUiState,
-    onRetryPeople: () -> Unit,
     onOpenAlbum: (albumId: String) -> Unit,
-    albumToFocus: String?,
-    onAlbumFocused: () -> Unit
+    onOpenPerson: (personId: String) -> Unit,
+    itemToFocus: String?,
+    onItemFocused: () -> Unit
 ) {
     when (tab) {
         MainNavItem.Home -> PhotoTimeline(query = TimelineQuery.Library)
         MainNavItem.Albums -> AlbumsScreen(
             onAlbumClick = onOpenAlbum,
-            focusAlbumId = albumToFocus,
-            onAlbumFocused = onAlbumFocused
+            focusAlbumId = itemToFocus,
+            onAlbumFocused = onItemFocused
         )
-        MainNavItem.People -> Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            PeopleContent(state = people, onRetry = onRetryPeople)
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun PeopleContent(
-    state: PeopleUiState,
-    onRetry: () -> Unit
-) {
-    when (state) {
-        PeopleUiState.Loading -> CircularProgressIndicator()
-        is PeopleUiState.Error -> ErrorMessage(
-            message = state.message,
-            actionLabel = stringResource(R.string.retry),
-            onAction = onRetry
+        MainNavItem.People -> PeopleScreen(
+            onPersonClick = onOpenPerson,
+            focusPersonId = itemToFocus,
+            onPersonFocused = onItemFocused
         )
-        is PeopleUiState.Success -> if (state.people.isEmpty()) {
-            Text(
-                text = "No named people yet. Name people in Immich to see them here.",
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center
-            )
-        } else {
-            PeopleGrid(people = state.people)
-        }
     }
 }
 

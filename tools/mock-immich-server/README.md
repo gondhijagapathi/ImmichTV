@@ -2,12 +2,17 @@
 
 A stand-in Immich server for trying ImmichTV without a real library. It makes up a library of
 photos and videos over the last few years and serves it through the parts of the Immich API the
-app uses: `users/me`, `people`, `albums`, `albums/{id}`, `timeline/buckets`, `timeline/bucket`,
-asset thumbnails and video playback. Response shapes follow Immich's OpenAPI spec.
+app uses: `users/me`, `people`, `people/{id}`, `people/{id}/statistics`, `albums`, `albums/{id}`,
+`timeline/buckets`, `timeline/bucket`, person and asset thumbnails, and video playback. Response
+shapes follow Immich's OpenAPI spec.
 
 The library comes with a dozen albums covering what the Albums tab shows: albums shared with you
 by "Asha Rao", one you share with her, one shown oldest first, one with a long name and
 description, and an empty one.
+
+People are each in a different share of the photos. Meera is a favorite, Asha and Ravi have
+birthdays, one person has a name too long to fit, and one hasn't been named, so the app should
+leave them out.
 
 Every image shows its own date and number (`#1` is the newest), so the order and grouping on
 screen are easy to check. Videos show the same over a running clock, with a beep every second, so

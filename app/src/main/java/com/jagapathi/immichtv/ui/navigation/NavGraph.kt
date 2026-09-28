@@ -13,6 +13,7 @@ import com.jagapathi.immichtv.ui.auth.AuthScreen
 import com.jagapathi.immichtv.ui.auth.AuthViewModel
 import com.jagapathi.immichtv.ui.main.MainScreen
 import com.jagapathi.immichtv.ui.main.MainViewModel
+import com.jagapathi.immichtv.ui.people.PersonScreen
 import com.jagapathi.immichtv.ui.settings.SettingsScreen
 import com.jagapathi.immichtv.ui.settings.SettingsViewModel
 import kotlinx.serialization.Serializable
@@ -28,6 +29,9 @@ data object Settings
 
 @Serializable
 data class Album(val id: String)
+
+@Serializable
+data class Person(val id: String)
 
 @Composable
 fun NavGraph(
@@ -62,6 +66,9 @@ fun NavGraph(
                 onOpenAlbum = { albumId ->
                     if (entry.isResumed()) navController.navigate(Album(albumId))
                 },
+                onOpenPerson = { personId ->
+                    if (entry.isResumed()) navController.navigate(Person(personId))
+                },
                 onLogoutSuccess = {
                     navController.navigate(Auth) {
                         popUpTo(Main) { inclusive = true }
@@ -83,6 +90,15 @@ fun NavGraph(
         composable<Album> { entry ->
             AlbumScreen(
                 albumId = entry.toRoute<Album>().id,
+                onBack = {
+                    if (entry.isResumed()) navController.popBackStack()
+                }
+            )
+        }
+
+        composable<Person> { entry ->
+            PersonScreen(
+                personId = entry.toRoute<Person>().id,
                 onBack = {
                     if (entry.isResumed()) navController.popBackStack()
                 }
