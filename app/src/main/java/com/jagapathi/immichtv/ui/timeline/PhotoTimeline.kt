@@ -136,6 +136,8 @@ private fun TimelineContent(
 
     // A tile asks for focus when it's composed with this key, e.g. after closing the viewer.
     var pendingFocusKey by remember { mutableStateOf<String?>(null) }
+    // Focuses the grid's last focused photo, through its focusRestorer.
+    val gridFocusRequester = remember { FocusRequester() }
     var viewerPosition by remember { mutableStateOf<AssetPosition?>(null) }
     val monthError by viewModel.monthError.collectAsStateWithLifecycle()
 
@@ -210,6 +212,7 @@ private fun TimelineContent(
                 verticalArrangement = Arrangement.spacedBy(TimelineDefaults.TileSpacing),
                 modifier = Modifier
                     .fillMaxSize()
+                    .focusRequester(gridFocusRequester)
                     .focusRestorer()
             ) {
                 if (header != null) {
@@ -254,6 +257,7 @@ private fun TimelineContent(
                     scope.launch { gridState.scrollToItem(itemOffset + currentLayout.monthHeaderIndex(month)) }
                 },
                 onMonthSelected = { month -> focusTile(AssetPosition(month, 0)) },
+                onReturn = { gridFocusRequester.requestFocus() },
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
@@ -304,6 +308,7 @@ private fun GridScrubber(
     itemOffset: Int,
     onMonthPreview: (month: Int) -> Unit,
     onMonthSelected: (month: Int) -> Unit,
+    onReturn: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val currentLayout by rememberUpdatedState(layout)
@@ -319,6 +324,7 @@ private fun GridScrubber(
         isScrolling = gridState.isScrollInProgress,
         onMonthPreview = onMonthPreview,
         onMonthSelected = onMonthSelected,
+        onReturn = onReturn,
         modifier = modifier
     )
 }
