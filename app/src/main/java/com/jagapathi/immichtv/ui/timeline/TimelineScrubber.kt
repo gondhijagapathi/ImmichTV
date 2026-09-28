@@ -22,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -32,7 +31,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -50,7 +48,7 @@ internal data class ScrubberPosition(val month: Int, val progress: Float)
  *
  * Pressing right from the grid focuses the rail. Up and down then step through the months while
  * the grid follows ([onMonthPreview]), and OK or left jumps into the chosen month
- * ([onMonthSelected]).
+ * ([onMonthSelected]), or goes back to the focused photo if no month was chosen ([onReturn]).
  */
 @Composable
 internal fun TimelineScrubber(
@@ -59,10 +57,10 @@ internal fun TimelineScrubber(
     isScrolling: Boolean,
     onMonthPreview: (month: Int) -> Unit,
     onMonthSelected: (month: Int) -> Unit,
+    onReturn: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val formats = rememberTimelineDateFormats()
-    val focusManager = LocalFocusManager.current
     var isFocused by remember { mutableStateOf(false) }
     var selectedMonth by remember { mutableIntStateOf(0) }
     var hasMoved by remember { mutableStateOf(false) }
@@ -116,7 +114,7 @@ internal fun TimelineScrubber(
                     if (event.type == KeyEventType.KeyUp) {
                         // Act on release, so the tile that gets focus doesn't also see the key.
                         if (isSelectKey) {
-                            if (hasMoved) onMonthSelected(selectedMonth) else focusManager.moveFocus(FocusDirection.Left)
+                            if (hasMoved) onMonthSelected(selectedMonth) else onReturn()
                         }
                         return@onPreviewKeyEvent isSelectKey
                     }
@@ -138,12 +136,11 @@ internal fun TimelineScrubber(
                             }
                             true
                         }
-                        // Without a new month picked, left just goes back to the focused photo.
-                        Key.DirectionLeft -> if (hasMoved) {
-                            onMonthSelected(selectedMonth)
+                        // Compose's own focus search can't find the grid to the left, since the grid
+                        // runs under the rail.
+                        Key.DirectionLeft -> {
+                            if (hasMoved) onMonthSelected(selectedMonth) else onReturn()
                             true
-                        } else {
-                            false
                         }
                         Key.DirectionRight -> true
                         else -> isSelectKey
