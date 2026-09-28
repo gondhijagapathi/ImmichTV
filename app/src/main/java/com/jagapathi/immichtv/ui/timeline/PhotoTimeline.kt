@@ -59,8 +59,10 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.jagapathi.immichtv.R
 import com.jagapathi.immichtv.model.TimelineQuery
+import com.jagapathi.immichtv.ui.components.ColumnFocus
 import com.jagapathi.immichtv.ui.components.ErrorMessage
 import com.jagapathi.immichtv.ui.components.TvBringIntoViewSpec
+import com.jagapathi.immichtv.ui.components.columnFocus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -146,7 +148,7 @@ private fun TimelineContent(
     // Shared by every tile, so tiles whose photo didn't change skip recomposing when a month loads.
     val openViewer = remember { { position: AssetPosition -> viewerPosition = position } }
     val onTileFocusRequested = remember { { pendingFocusKey = null } }
-    val columnFocus = remember { ColumnFocus(TimelineDefaults.Columns) { currentLayout } }
+    val columnFocus = remember { ColumnFocus { currentLayout.rows(TimelineDefaults.Columns) } }
 
     // Load the months on screen plus one either side, so moving on rarely waits for the network.
     LaunchedEffect(gridState, itemOffset) {
@@ -360,7 +362,7 @@ private fun AssetTile(
     requestFocus: Boolean,
     onFocusRequested: () -> Unit,
     onClick: (AssetPosition) -> Unit,
-    columnFocus: ColumnFocus
+    columnFocus: ColumnFocus<AssetPosition>
 ) {
     val focusRequester = remember { FocusRequester() }
 
