@@ -49,6 +49,7 @@ object TopBarDefaults {
     const val GradientMidAlpha = 0.7f
 }
 
+/** The tabs and the Settings and profile buttons. Focusing a tab, e.g. with [tabFocusRequesters], selects it. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TopNavigationBar(
@@ -56,11 +57,10 @@ fun TopNavigationBar(
     onItemSelected: (MainNavItem) -> Unit,
     onSettingsClick: () -> Unit,
     onProfileClick: () -> Unit,
+    tabFocusRequesters: Map<MainNavItem, FocusRequester>,
     modifier: Modifier = Modifier,
     profilePictureUrl: String? = null
 ) {
-    val tabFocusRequesters = remember { MainNavItem.entries.associateWith { FocusRequester() } }
-
     // Tabs switch content on focus, so focusing anything but the selected tab would change it,
     // e.g. when coming back from Settings.
     LaunchedEffect(Unit) {
