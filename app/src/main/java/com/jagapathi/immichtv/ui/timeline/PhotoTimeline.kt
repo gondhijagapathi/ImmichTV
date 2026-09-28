@@ -146,6 +146,7 @@ private fun TimelineContent(
     // Shared by every tile, so tiles whose photo didn't change skip recomposing when a month loads.
     val openViewer = remember { { position: AssetPosition -> viewerPosition = position } }
     val onTileFocusRequested = remember { { pendingFocusKey = null } }
+    val columnFocus = remember { ColumnFocus(TimelineDefaults.Columns) { currentLayout } }
 
     // Load the months on screen plus one either side, so moving on rarely waits for the network.
     LaunchedEffect(gridState, itemOffset) {
@@ -236,7 +237,8 @@ private fun TimelineContent(
                             position = item.position,
                             requestFocus = pendingFocusKey == item.key,
                             onFocusRequested = onTileFocusRequested,
-                            onClick = openViewer
+                            onClick = openViewer,
+                            columnFocus = columnFocus
                         )
                     }
                 }
@@ -357,7 +359,8 @@ private fun AssetTile(
     position: AssetPosition,
     requestFocus: Boolean,
     onFocusRequested: () -> Unit,
-    onClick: (AssetPosition) -> Unit
+    onClick: (AssetPosition) -> Unit,
+    columnFocus: ColumnFocus
 ) {
     val focusRequester = remember { FocusRequester() }
 
@@ -373,6 +376,7 @@ private fun AssetTile(
             .focusIndication(focusedScale = 1.1f, border = TileFocusBorder, shape = TimelineDefaults.TileShape)
             .aspectRatio(1f)
             .focusRequester(focusRequester)
+            .columnFocus(position, columnFocus)
             .clickable(interactionSource = null, indication = null) { onClick(position) }
             .clip(TimelineDefaults.TileShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)

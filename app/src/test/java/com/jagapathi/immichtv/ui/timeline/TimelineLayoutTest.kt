@@ -108,4 +108,68 @@ class TimelineLayoutTest {
         assertEquals(AssetPosition(1, 0), layout.coerce(AssetPosition(1, 1)))
         assertEquals(AssetPosition(0, 1), layout.coerce(AssetPosition(0, 1)))
     }
+
+    // In a grid 3 wide: June's days take rows of 3, 2, 1, 3 and 1 photos, unloaded July's photos rows of
+    // 3 and 1, and March's day a row of 2. The emptied April has no rows.
+    private fun photos(month: Int, vararg days: Pair<Int, Int>) =
+        days.flatMap { (day, count) -> List(count) { asset("$month-$day-$it", day, month) } }
+
+    private val gridLayout = TimelineLayout(
+        listOf(
+            TimelineMonth("2024-07-01", YearMonth.of(2024, 7), 4),
+            TimelineMonth("2024-06-01", YearMonth.of(2024, 6), 10, photos(6, 20 to 5, 18 to 1, 10 to 4)),
+            TimelineMonth("2024-04-01", YearMonth.of(2024, 4), 1, emptyList()),
+            TimelineMonth("2024-03-01", YearMonth.of(2024, 3), 2, photos(3, 2 to 2))
+        )
+    )
+
+    private fun walk(from: AssetPosition, column: Int, step: TimelineLayout.(AssetPosition, Int, Int) -> AssetPosition?) =
+        generateSequence(from) { gridLayout.step(it, column, 3) }.toList()
+
+    @Test
+    fun `finds the column of an asset when days start new rows`() {
+        assertEquals(2, gridLayout.columnOf(AssetPosition(0, 2), 3))
+        assertEquals(0, gridLayout.columnOf(AssetPosition(0, 3), 3))
+        assertEquals(1, gridLayout.columnOf(AssetPosition(1, 4), 3))
+        assertEquals(0, gridLayout.columnOf(AssetPosition(1, 5), 3))
+        assertEquals(1, gridLayout.columnOf(AssetPosition(1, 7), 3))
+        assertEquals(0, gridLayout.columnOf(AssetPosition(1, 9), 3))
+    }
+
+    @Test
+    fun `moving down keeps the column past shorter rows`() {
+        assertEquals(
+            listOf(
+                AssetPosition(0, 2), AssetPosition(0, 3), // July's second row has one photo.
+                AssetPosition(1, 2), AssetPosition(1, 4), AssetPosition(1, 5), // June's rows of 3, 2 and 1.
+                AssetPosition(1, 8), AssetPosition(1, 9),
+                AssetPosition(3, 1) // Past the emptied April.
+            ),
+            walk(AssetPosition(0, 2), column = 2, step = TimelineLayout::positionBelow)
+        )
+    }
+
+    @Test
+    fun `moving up keeps the column past shorter rows`() {
+        assertEquals(
+            listOf(
+                AssetPosition(3, 1),
+                AssetPosition(1, 9), AssetPosition(1, 8), AssetPosition(1, 5), AssetPosition(1, 4), AssetPosition(1, 2),
+                AssetPosition(0, 3), AssetPosition(0, 2)
+            ),
+            walk(AssetPosition(3, 1), column = 2, step = TimelineLayout::positionAbove)
+        )
+    }
+
+    @Test
+    fun `moves straight up and down in the first column`() {
+        assertEquals(
+            listOf(AssetPosition(0, 0), AssetPosition(0, 3), AssetPosition(1, 0), AssetPosition(1, 3)),
+            walk(AssetPosition(0, 0), column = 0, step = TimelineLayout::positionBelow).take(4)
+        )
+        assertEquals(
+            listOf(AssetPosition(1, 3), AssetPosition(1, 0), AssetPosition(0, 3), AssetPosition(0, 0)),
+            walk(AssetPosition(1, 3), column = 0, step = TimelineLayout::positionAbove)
+        )
+    }
 }

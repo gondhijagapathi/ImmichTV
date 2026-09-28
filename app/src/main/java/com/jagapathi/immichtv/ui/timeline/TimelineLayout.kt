@@ -121,5 +121,59 @@ class TimelineLayout(val months: List<TimelineMonth>) {
     /** Where [position] falls on the whole timeline, counting from 0. */
     fun overallIndexOf(position: AssetPosition): Int = assetsBefore[position.month] + position.index
 
+    /**
+     * The column of the asset at [position] in a grid [columns] wide. Every header starts a new
+     * row, so a day's photos, or a month's until it has loaded, start in the first column.
+     */
+    fun columnOf(position: AssetPosition, columns: Int): Int {
+        val index = itemIndexOf(position) ?: return 0
+        return (index - tilesStart(index)) % columns
+    }
+
+    /**
+     * The asset in [column] of the row below [position], or the row's last asset if it's shorter.
+     * Null on the last row.
+     */
+    fun positionBelow(position: AssetPosition, column: Int, columns: Int): AssetPosition? {
+        val index = itemIndexOf(position) ?: return null
+        val rowEnd = index - (index - tilesStart(index)) % columns + columns
+        // Past the rest of this row and any headers after it.
+        var next = index + 1
+        while (next < rowEnd && isTile(next)) next++
+        while (next < items.size && !isTile(next)) next++
+        return if (next < items.size) tileInRow(next, column, columns) else null
+    }
+
+    /**
+     * The asset in [column] of the row above [position], or the row's last asset if it's shorter.
+     * Null on the first row.
+     */
+    fun positionAbove(position: AssetPosition, column: Int, columns: Int): AssetPosition? {
+        val index = itemIndexOf(position) ?: return null
+        val start = tilesStart(index)
+        val rowStart = index - (index - start) % columns
+        if (rowStart > start) return tileInRow(rowStart - columns, column, columns)
+        // The last row before the headers above.
+        var last = start - 1
+        while (last >= 0 && !isTile(last)) last--
+        if (last < 0) return null
+        return tileInRow(last - (last - tilesStart(last)) % columns, column, columns)
+    }
+
+    private fun tileInRow(rowStart: Int, column: Int, columns: Int): AssetPosition {
+        var index = rowStart
+        while (index < rowStart + column.coerceAtMost(columns - 1) && isTile(index + 1)) index++
+        return (items[index] as TimelineItem.Tile).position
+    }
+
+    /** The first cell of the run of tiles between headers that the tile at [index] is in. */
+    private fun tilesStart(index: Int): Int {
+        var start = index
+        while (start > 0 && isTile(start - 1)) start--
+        return start
+    }
+
+    private fun isTile(index: Int) = items.getOrNull(index) is TimelineItem.Tile
+
     private fun tileKey(month: TimelineMonth, index: Int) = "asset:${month.bucket}:$index"
 }
