@@ -1,5 +1,6 @@
 package com.jagapathi.immichtv.ui.main
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -34,6 +35,7 @@ fun MainScreen(
 ) {
     val activeProfile by viewModel.activeProfile.collectAsState()
     var selectedTab by rememberSaveable { mutableStateOf(MainNavItem.Home) }
+    val tabFocusRequesters = remember { MainNavItem.entries.associateWith { FocusRequester() } }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
     // The album or person opened from here, kept while their page is open. When this screen comes
@@ -51,6 +53,14 @@ fun MainScreen(
         }
     }
 
+    // Back on another tab goes to Home first, as on other TV apps, so only Back on Home leaves the app.
+    BackHandler(enabled = selectedTab != MainNavItem.Home) {
+        // Focus entering the bar is sent back to where it last was, so it goes to the current tab
+        // first. Focusing Home then selects it.
+        tabFocusRequesters.getValue(selectedTab).requestFocus()
+        tabFocusRequesters.getValue(MainNavItem.Home).requestFocus()
+    }
+
     Surface(modifier = Modifier.fillMaxSize()) {
         Column {
             Box(Modifier.focusGroup().focusRestorer()) {
@@ -59,6 +69,7 @@ fun MainScreen(
                     onItemSelected = { selectedTab = it },
                     onSettingsClick = onNavigateToSettings,
                     onProfileClick = { showLogoutDialog = true },
+                    tabFocusRequesters = tabFocusRequesters,
                     profilePictureUrl = activeProfile?.profilePictureUrl
                 )
             }
