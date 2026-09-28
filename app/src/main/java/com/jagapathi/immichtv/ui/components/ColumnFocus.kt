@@ -23,8 +23,13 @@ import androidx.compose.ui.platform.InspectorInfo
  *
  * The column is kept only while moving up and down. Focusing a cell any other way, e.g. moving
  * left or right, or coming back from another screen, starts again from that cell's column.
+ *
+ * [isScrolling] tells whether the grid is scrolling, e.g. to bring the focused cell into view.
  */
-internal class ColumnFocus<K : Any>(private val rows: () -> GridRows<K>) {
+internal class ColumnFocus<K : Any>(
+    private val isScrolling: () -> Boolean,
+    private val rows: () -> GridRows<K>
+) {
     private val cells = HashMap<K, FocusRequesterModifierNode>()
     private var column: Int? = null
     private var isMovingVertically = false
@@ -39,12 +44,17 @@ internal class ColumnFocus<K : Any>(private val rows: () -> GridRows<K>) {
         // At the top or bottom. If Compose moves focus out of the grid, e.g. up to the tabs, the
         // column is reset when a cell is focused again.
         val target = (if (down) rows.below(from, column) else rows.above(from, column)) ?: return false
+        val cell = cells[target]
+        // Holding a button moves focus faster than the grid scrolls after it, so focus reaches rows
+        // that aren't composed yet. Wait for the scroll to bring them in: Compose's own search
+        // would lay the grid out past its edge a row at a time, which is far too slow to keep up.
+        if (cell == null && isScrolling()) return true
         this.column = column
         isMovingVertically = true
         // Rows just off screen are already composed, and the grid scrolls to the cell once it's
         // focused. Rows further away are left to Compose's search, which may pick another cell in
         // the row, but the column is still kept.
-        return cells[target]?.requestFocus() ?: false
+        return cell?.requestFocus() ?: false
     }
 
     /** Called when a cell gains focus. */

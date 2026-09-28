@@ -75,7 +75,7 @@ class TimelineViewModel @AssistedInject constructor(
             when (months) {
                 Months.Loading -> TimelineUiState.Loading
                 is Months.Error -> TimelineUiState.Error(months.message)
-                is Months.Loaded -> TimelineUiState.Ready(TimelineLayout(months.months))
+                is Months.Loaded -> TimelineUiState.Ready(TimelineLayout(months.months, TimelineDefaults.Columns))
             }
         }
         .flowOn(Dispatchers.Default)

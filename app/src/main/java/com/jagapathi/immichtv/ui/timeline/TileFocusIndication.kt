@@ -4,16 +4,13 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusEventModifierNode
 import androidx.compose.ui.focus.FocusState
-import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureResult
@@ -30,13 +27,15 @@ import kotlinx.coroutines.launch
 
 /**
  * The focus look of a clickable TV Material Surface, enlarged and outlined while focused, for
- * grids with thousands of cells. Unlike `androidx.tv.material3.Surface` it never recomposes:
- * moving focus only updates the cell's layer and redraws its outline, so scrolling through a grid
- * by holding a D-pad button stays cheap.
+ * grids with thousands of cells. Unlike `androidx.tv.material3.Surface` it never recomposes: moving
+ * focus only redraws the cell, so scrolling through a grid by holding a D-pad button stays cheap.
  *
  * The cell grows by [focusedGrowth] on each side rather than by a set factor, so that it can be
  * kept within the gap between cells whatever their size. The outline straddles the enlarged edge,
  * so it reaches half its width further.
+ *
+ * The cell is scaled as it's drawn rather than in a graphics layer of its own. Up to Android 9,
+ * each graphics layer is backed by a View, and a layer for every cell made scrolling slow.
  *
  * Goes before the focusable (e.g. `clickable`) whose focus it shows, and outside any clip so the
  * outline can straddle the edge like the TV Material one.
@@ -52,19 +51,12 @@ private data class FocusGrowthElement(val focusedGrowth: Dp) : ModifierNodeEleme
     }
 }
 
-private class FocusGrowthNode(var focusedGrowth: Dp) : Modifier.Node(), FocusEventModifierNode, LayoutModifierNode {
+private class FocusGrowthNode(var focusedGrowth: Dp) :
+    Modifier.Node(), FocusEventModifierNode, LayoutModifierNode, DrawModifierNode {
     private var isFocused = false
     // From 0 at rest to 1 when fully grown.
-    private var growth by mutableFloatStateOf(0f)
+    private var growth = 0f
     private var animation: Job? = null
-
-    // Reads growth in the layer, so animating it only updates the layer.
-    private val layerBlock: GraphicsLayerScope.() -> Unit = {
-        val extent = size.maxDimension
-        val scale = if (extent > 0f) 1f + growth * 2 * focusedGrowth.toPx() / extent else 1f
-        scaleX = scale
-        scaleY = scale
-    }
 
     override fun onFocusEvent(focusState: FocusState) {
         if (focusState.isFocused == isFocused) return
@@ -79,15 +71,27 @@ private class FocusGrowthNode(var focusedGrowth: Dp) : Modifier.Node(), FocusEve
         // The z-index changes, so the enlarged cell is drawn over its neighbours.
         invalidatePlacement()
         animation = coroutineScope.launch {
-            animate(growth, target, animationSpec = if (isFocused) FocusSpec else UnfocusSpec) { value, _ -> growth = value }
+            animate(growth, target, animationSpec = if (isFocused) FocusSpec else UnfocusSpec) { value, _ ->
+                growth = value
+                invalidateDraw()
+            }
         }
     }
 
     override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
         val placeable = measurable.measure(constraints)
         return layout(placeable.width, placeable.height) {
-            placeable.placeWithLayer(0, 0, zIndex = if (isFocused) 1f else 0f, layerBlock = layerBlock)
+            placeable.place(0, 0, zIndex = if (isFocused) 1f else 0f)
         }
+    }
+
+    override fun ContentDrawScope.draw() {
+        val extent = size.maxDimension
+        if (growth == 0f || extent == 0f) {
+            drawContent()
+            return
+        }
+        scale(1f + growth * 2 * focusedGrowth.toPx() / extent) { this@draw.drawContent() }
     }
 
     // Lazy grids reuse cells for other items.
