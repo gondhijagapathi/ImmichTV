@@ -1,5 +1,6 @@
 package com.jagapathi.immichtv.ui.timeline
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -25,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -34,6 +36,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
@@ -92,9 +95,15 @@ internal fun TimelineScrubber(
     }
     val labelMonth = (if (isFocused) selectedMonth else position.month).coerceIn(months.indices)
 
+    // While focused, the thumb grows into a handle in the text colour, which stands out like the
+    // white outline on a focused photo, and the track and year labels brighten.
+    val focus by animateFloatAsState(if (isFocused) 1f else 0f, label = "ScrubberFocus")
+    val colors = MaterialTheme.colorScheme
+    val thumbWidth = lerp(ThumbWidth, FocusedThumbWidth, focus)
+    val thumbHeight = lerp(ThumbHeight, FocusedThumbHeight, focus)
+
     BoxWithConstraints(modifier = modifier.width(LabelAreaWidth + RailWidth)) {
-        val railTop = RailMargin + RailVerticalPadding
-        val railHeight = maxHeight - railTop * 2
+        val railHeight = maxHeight - RailVerticalPadding * 2
         val thumbY = railHeight * thumbFraction
 
         Box(
@@ -102,9 +111,6 @@ internal fun TimelineScrubber(
                 .align(Alignment.CenterEnd)
                 .width(RailWidth)
                 .fillMaxHeight()
-                // Keeps the focused background clear of the photos, the tabs, the bottom of the
-                // screen and its right edge.
-                .padding(start = RailStartMargin, top = RailMargin, end = RailEndMargin, bottom = RailMargin)
                 .onFocusChanged { state ->
                     if (state.isFocused && !isFocused) {
                         selectedMonth = position.month
@@ -151,34 +157,31 @@ internal fun TimelineScrubber(
                     }
                 }
                 .focusable()
-                .background(
-                    color = if (isFocused) {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                    } else {
-                        Color.Transparent
-                    },
-                    shape = RoundedCornerShape(RailWidth / 2)
-                )
                 .padding(vertical = RailVerticalPadding)
         ) {
-            RailTrack(monthTops = monthTops)
-            YearLabels(months = months, monthTops = monthTops, railHeight = railHeight)
+            RailTrack(monthTops = monthTops, focus = focus)
+            YearLabels(
+                months = months,
+                monthTops = monthTops,
+                railHeight = railHeight,
+                color = lerp(colors.onSurfaceVariant, colors.onSurface, focus)
+            )
             Box(
                 modifier = Modifier
-                    .offset { IntOffset(x = 0, y = (thumbY - ThumbHeight / 2).roundToPx()) }
-                    .padding(start = TrackX - ThumbWidth / 2)
-                    .size(ThumbWidth, ThumbHeight)
-                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(ThumbHeight / 2))
+                    .offset { IntOffset(x = 0, y = (thumbY - thumbHeight / 2).roundToPx()) }
+                    .padding(start = TrackX - thumbWidth / 2)
+                    .size(thumbWidth, thumbHeight)
+                    .background(lerp(colors.primary, colors.onSurface, focus), RoundedCornerShape(thumbHeight / 2))
             )
         }
 
         if (isFocused || showLabelAfterScroll) {
-            val labelY = (thumbY + railTop - LabelHeight / 2).coerceIn(0.dp, maxHeight - LabelHeight)
+            val labelY = (thumbY + RailVerticalPadding - LabelHeight / 2).coerceIn(0.dp, maxHeight - LabelHeight)
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset { IntOffset(x = -(RailWidth - RailStartMargin + LabelGap).roundToPx(), y = labelY.roundToPx()) }
+                    .offset { IntOffset(x = -RailWidth.roundToPx(), y = labelY.roundToPx()) }
                     .height(LabelHeight)
                     .background(MaterialTheme.colorScheme.inverseSurface, RoundedCornerShape(LabelHeight / 2))
                     .padding(horizontal = 14.dp)
@@ -193,11 +196,15 @@ internal fun TimelineScrubber(
     }
 }
 
-/** The track line, with a dot where each month starts when there's room for it. */
+/**
+ * The track line, with a dot where each month starts when there's room for it. Both brighten with
+ * [focus], from 0 to 1.
+ */
 @Composable
-private fun RailTrack(monthTops: FloatArray) {
-    val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
-    val dotColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+private fun RailTrack(monthTops: FloatArray, focus: Float) {
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val trackColor = lerp(onSurface.copy(alpha = 0.25f), onSurface.copy(alpha = 0.6f), focus)
+    val dotColor = lerp(onSurface.copy(alpha = 0.5f), onSurface.copy(alpha = 0.9f), focus)
     Canvas(modifier = Modifier.fillMaxSize()) {
         val x = TrackX.toPx()
         drawLine(trackColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2.dp.toPx())
@@ -213,7 +220,7 @@ private fun RailTrack(monthTops: FloatArray) {
 
 /** A label at the top of each year's newest month, skipping any that would overlap. */
 @Composable
-private fun YearLabels(months: List<TimelineMonth>, monthTops: FloatArray, railHeight: Dp) {
+private fun YearLabels(months: List<TimelineMonth>, monthTops: FloatArray, railHeight: Dp, color: Color) {
     val minGap = with(LocalDensity.current) { MinYearLabelGap.toPx() }
     val railHeightPx = with(LocalDensity.current) { railHeight.toPx() }
     var lastY = Float.NEGATIVE_INFINITY
@@ -228,7 +235,7 @@ private fun YearLabels(months: List<TimelineMonth>, monthTops: FloatArray, railH
         Text(
             text = year.toString(),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = color,
             modifier = Modifier
                 .offset { IntOffset(x = 0, y = y.roundToInt() - YearLabelOffset.roundToPx()) }
                 .padding(start = YearLabelStart)
@@ -237,19 +244,15 @@ private fun YearLabels(months: List<TimelineMonth>, monthTops: FloatArray, railH
 }
 
 private val RailWidth = TimelineDefaults.ScrubberWidth
-private val RailMargin = 8.dp
-private val RailStartMargin = TimelineDefaults.TileSpacing
-private val RailEndMargin = 4.dp
-// Keeps the first and last year labels clear of the focused background's rounded ends.
 private val RailVerticalPadding = 24.dp
-// The year labels and the thumb are the same distance from the sides of the focused background.
-private val YearLabelStart = 5.dp
-private val TrackX = 48.dp
+private val YearLabelStart = 11.dp
+private val TrackX = 54.dp
 private val ThumbWidth = 18.dp
 private val ThumbHeight = 4.dp
+private val FocusedThumbWidth = 22.dp
+private val FocusedThumbHeight = 8.dp
 private val LabelAreaWidth = 200.dp
 private val LabelHeight = 32.dp
-private val LabelGap = 8.dp
 private val MinDotGap = 8.dp
 private val MinYearLabelGap = 20.dp
 private val YearLabelOffset = 6.dp
