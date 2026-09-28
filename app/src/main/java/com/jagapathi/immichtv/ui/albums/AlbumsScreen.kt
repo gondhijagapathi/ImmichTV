@@ -54,9 +54,11 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.jagapathi.immichtv.R
+import com.jagapathi.immichtv.ui.components.ColumnFocus
 import com.jagapathi.immichtv.ui.components.ErrorMessage
 import com.jagapathi.immichtv.ui.components.itemCount
 import com.jagapathi.immichtv.ui.components.TvBringIntoViewSpec
+import com.jagapathi.immichtv.ui.components.columnFocus
 import kotlinx.coroutines.flow.first
 
 /**
@@ -110,6 +112,8 @@ private fun AlbumsGrid(
 ) {
     val gridState = rememberLazyGridState()
     val currentOnAlbumFocused by rememberUpdatedState(onAlbumFocused)
+    val rows by rememberUpdatedState(remember(groups) { albumRows(groups, AlbumsDefaults.Columns) })
+    val columnFocus = remember { ColumnFocus { rows } }
 
     // A card can only take focus once it's composed, so scroll it into view first if needed.
     LaunchedEffect(focusAlbumId, groups) {
@@ -148,7 +152,8 @@ private fun AlbumsGrid(
                         album = album,
                         requestFocus = album.id == focusAlbumId,
                         onFocusRequested = onAlbumFocused,
-                        onClick = { onAlbumClick(album.id) }
+                        onClick = { onAlbumClick(album.id) },
+                        columnFocus = columnFocus
                     )
                 }
             }
@@ -182,7 +187,8 @@ private fun AlbumCard(
     album: AlbumUi,
     requestFocus: Boolean,
     onFocusRequested: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    columnFocus: ColumnFocus<String>
 ) {
     val focusRequester = remember { FocusRequester() }
     val interactionSource = remember { MutableInteractionSource() }
@@ -213,6 +219,7 @@ private fun AlbumCard(
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .focusRequester(focusRequester)
+                .columnFocus(album.id, columnFocus)
         ) {
             if (album.coverUrl != null) {
                 AsyncImage(

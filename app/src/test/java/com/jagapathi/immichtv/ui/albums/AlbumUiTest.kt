@@ -129,4 +129,23 @@ class AlbumUiTest {
     fun `no albums means no groups`() {
         assertTrue(groupByYear(emptyList()).isEmpty())
     }
+
+    @Test
+    fun `moving up and down the albums keeps the column past shorter years`() {
+        // In a grid 3 wide: 2024 takes a row of 2, 2023 rows of 3 and 1, and the empty albums a row of 3.
+        fun albums(vararg ids: String) = ids.map { dto(id = it).toUi() }
+        val rows = albumRows(
+            listOf(
+                AlbumGroup(2024, albums("a", "b")),
+                AlbumGroup(2023, albums("c", "d", "e", "f")),
+                AlbumGroup(null, albums("g", "h", "i"))
+            ),
+            columns = 3
+        )
+
+        assertEquals(2, rows.columnOf("e"))
+        assertEquals(listOf("e", "f", "i"), generateSequence("e") { rows.below(it, 2) }.toList())
+        assertEquals(listOf("i", "f", "e", "b"), generateSequence("i") { rows.above(it, 2) }.toList())
+        assertEquals(listOf("a", "c", "f", "g"), generateSequence("a") { rows.below(it, 0) }.toList())
+    }
 }

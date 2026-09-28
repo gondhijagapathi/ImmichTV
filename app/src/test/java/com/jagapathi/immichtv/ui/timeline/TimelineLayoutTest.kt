@@ -1,5 +1,6 @@
 package com.jagapathi.immichtv.ui.timeline
 
+import com.jagapathi.immichtv.ui.components.GridRows
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -123,17 +124,19 @@ class TimelineLayoutTest {
         )
     )
 
-    private fun walk(from: AssetPosition, column: Int, step: TimelineLayout.(AssetPosition, Int, Int) -> AssetPosition?) =
-        generateSequence(from) { gridLayout.step(it, column, 3) }.toList()
+    private val rows = gridLayout.rows(columns = 3)
+
+    private fun walk(from: AssetPosition, column: Int, step: GridRows<AssetPosition>.(AssetPosition, Int) -> AssetPosition?) =
+        generateSequence(from) { rows.step(it, column) }.toList()
 
     @Test
     fun `finds the column of an asset when days start new rows`() {
-        assertEquals(2, gridLayout.columnOf(AssetPosition(0, 2), 3))
-        assertEquals(0, gridLayout.columnOf(AssetPosition(0, 3), 3))
-        assertEquals(1, gridLayout.columnOf(AssetPosition(1, 4), 3))
-        assertEquals(0, gridLayout.columnOf(AssetPosition(1, 5), 3))
-        assertEquals(1, gridLayout.columnOf(AssetPosition(1, 7), 3))
-        assertEquals(0, gridLayout.columnOf(AssetPosition(1, 9), 3))
+        assertEquals(2, rows.columnOf(AssetPosition(0, 2)))
+        assertEquals(0, rows.columnOf(AssetPosition(0, 3)))
+        assertEquals(1, rows.columnOf(AssetPosition(1, 4)))
+        assertEquals(0, rows.columnOf(AssetPosition(1, 5)))
+        assertEquals(1, rows.columnOf(AssetPosition(1, 7)))
+        assertEquals(0, rows.columnOf(AssetPosition(1, 9)))
     }
 
     @Test
@@ -145,7 +148,7 @@ class TimelineLayoutTest {
                 AssetPosition(1, 8), AssetPosition(1, 9),
                 AssetPosition(3, 1) // Past the emptied April.
             ),
-            walk(AssetPosition(0, 2), column = 2, step = TimelineLayout::positionBelow)
+            walk(AssetPosition(0, 2), column = 2, step = GridRows<AssetPosition>::below)
         )
     }
 
@@ -157,7 +160,7 @@ class TimelineLayoutTest {
                 AssetPosition(1, 9), AssetPosition(1, 8), AssetPosition(1, 5), AssetPosition(1, 4), AssetPosition(1, 2),
                 AssetPosition(0, 3), AssetPosition(0, 2)
             ),
-            walk(AssetPosition(3, 1), column = 2, step = TimelineLayout::positionAbove)
+            walk(AssetPosition(3, 1), column = 2, step = GridRows<AssetPosition>::above)
         )
     }
 
@@ -165,11 +168,11 @@ class TimelineLayoutTest {
     fun `moves straight up and down in the first column`() {
         assertEquals(
             listOf(AssetPosition(0, 0), AssetPosition(0, 3), AssetPosition(1, 0), AssetPosition(1, 3)),
-            walk(AssetPosition(0, 0), column = 0, step = TimelineLayout::positionBelow).take(4)
+            walk(AssetPosition(0, 0), column = 0, step = GridRows<AssetPosition>::below).take(4)
         )
         assertEquals(
             listOf(AssetPosition(1, 3), AssetPosition(1, 0), AssetPosition(0, 3), AssetPosition(0, 0)),
-            walk(AssetPosition(1, 3), column = 0, step = TimelineLayout::positionAbove)
+            walk(AssetPosition(1, 3), column = 0, step = GridRows<AssetPosition>::above)
         )
     }
 }

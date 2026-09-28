@@ -2,6 +2,7 @@ package com.jagapathi.immichtv.ui.albums
 
 import com.jagapathi.immichtv.model.ImmichAlbumDto
 import com.jagapathi.immichtv.model.TimelineQuery
+import com.jagapathi.immichtv.ui.components.GridRows
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -58,3 +59,11 @@ internal fun groupByYear(albums: List<AlbumUi>): List<AlbumGroup> = albums
     .sortedWith(compareByDescending<AlbumUi> { it.newestPhotoAt }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
     .groupBy { it.newestPhotoAt?.year }
     .map { (year, albums) -> AlbumGroup(year, albums) }
+
+/** The rows of the Albums tab's grid [columns] wide, where each year's heading starts a new row. Cells are album ids. */
+internal fun albumRows(groups: List<AlbumGroup>, columns: Int): GridRows<String> {
+    val cells = groups.flatMap { group -> listOf(null) + group.albums.map { it.id } }
+    val indices = HashMap<String, Int>()
+    cells.forEachIndexed { index, id -> if (id != null) indices[id] = index }
+    return GridRows(columns, cells.size, cellAt = cells::get, indexOf = indices::get)
+}
