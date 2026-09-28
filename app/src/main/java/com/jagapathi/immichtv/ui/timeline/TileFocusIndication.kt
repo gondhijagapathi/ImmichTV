@@ -24,6 +24,7 @@ import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.node.invalidatePlacement
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -33,27 +34,34 @@ import kotlinx.coroutines.launch
  * moving focus only updates the cell's layer and redraws its outline, so scrolling through a grid
  * by holding a D-pad button stays cheap.
  *
+ * The cell grows by [focusedGrowth] on each side rather than by a set factor, so that it can be
+ * kept within the gap between cells whatever their size. The outline straddles the enlarged edge,
+ * so it reaches half its width further.
+ *
  * Goes before the focusable (e.g. `clickable`) whose focus it shows, and outside any clip so the
  * outline can straddle the edge like the TV Material one.
  */
-internal fun Modifier.focusIndication(focusedScale: Float, border: BorderStroke, shape: Shape): Modifier =
-    this then FocusScaleElement(focusedScale) then FocusBorderElement(border, shape)
+internal fun Modifier.focusIndication(focusedGrowth: Dp, border: BorderStroke, shape: Shape): Modifier =
+    this then FocusGrowthElement(focusedGrowth) then FocusBorderElement(border, shape)
 
-private data class FocusScaleElement(val focusedScale: Float) : ModifierNodeElement<FocusScaleNode>() {
-    override fun create() = FocusScaleNode(focusedScale)
+private data class FocusGrowthElement(val focusedGrowth: Dp) : ModifierNodeElement<FocusGrowthNode>() {
+    override fun create() = FocusGrowthNode(focusedGrowth)
 
-    override fun update(node: FocusScaleNode) {
-        node.focusedScale = focusedScale
+    override fun update(node: FocusGrowthNode) {
+        node.focusedGrowth = focusedGrowth
     }
 }
 
-private class FocusScaleNode(var focusedScale: Float) : Modifier.Node(), FocusEventModifierNode, LayoutModifierNode {
+private class FocusGrowthNode(var focusedGrowth: Dp) : Modifier.Node(), FocusEventModifierNode, LayoutModifierNode {
     private var isFocused = false
-    private var scale by mutableFloatStateOf(1f)
+    // From 0 at rest to 1 when fully grown.
+    private var growth by mutableFloatStateOf(0f)
     private var animation: Job? = null
 
-    // Reads scale in the layer, so animating it only updates the layer.
+    // Reads growth in the layer, so animating it only updates the layer.
     private val layerBlock: GraphicsLayerScope.() -> Unit = {
+        val extent = size.maxDimension
+        val scale = if (extent > 0f) 1f + growth * 2 * focusedGrowth.toPx() / extent else 1f
         scaleX = scale
         scaleY = scale
     }
@@ -61,17 +69,17 @@ private class FocusScaleNode(var focusedScale: Float) : Modifier.Node(), FocusEv
     override fun onFocusEvent(focusState: FocusState) {
         if (focusState.isFocused == isFocused) return
         isFocused = focusState.isFocused
-        val target = if (isFocused) focusedScale else 1f
+        val target = if (isFocused) 1f else 0f
         animation?.cancel()
         // Focus can also change as the cell leaves the grid.
         if (!isAttached) {
-            scale = target
+            growth = target
             return
         }
         // The z-index changes, so the enlarged cell is drawn over its neighbours.
         invalidatePlacement()
         animation = coroutineScope.launch {
-            animate(scale, target, animationSpec = if (isFocused) FocusSpec else UnfocusSpec) { value, _ -> scale = value }
+            animate(growth, target, animationSpec = if (isFocused) FocusSpec else UnfocusSpec) { value, _ -> growth = value }
         }
     }
 
@@ -86,7 +94,7 @@ private class FocusScaleNode(var focusedScale: Float) : Modifier.Node(), FocusEv
     override fun onReset() {
         animation?.cancel()
         isFocused = false
-        scale = 1f
+        growth = 0f
     }
 }
 
