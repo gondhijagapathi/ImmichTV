@@ -170,7 +170,12 @@ fun AuthScreen(
 /**
  * A text field that can be focused with the D-pad without popping up the on-screen keyboard,
  * which would otherwise cover half the screen every time focus passes through. Pressing OK
- * starts editing; the keyboard's Next/Done action or moving focus away stops it.
+ * starts editing, or reopens the keyboard if it was closed; the keyboard's Next/Done action or
+ * moving focus away stops it.
+ *
+ * Up and Down always move focus to the next field or button. Otherwise the text field takes them
+ * to move its cursor, which traps focus in the field on remotes that Compose doesn't recognise
+ * as a D-pad.
  */
 @Composable
 private fun TvTextField(
@@ -201,11 +206,26 @@ private fun TvTextField(
             .onPreviewKeyEvent { event ->
                 val isConfirm = event.key == Key.DirectionCenter || event.key == Key.Enter ||
                     event.key == Key.NumPadEnter
-                if (!isEditing && isConfirm) {
-                    if (event.type == KeyEventType.KeyUp) isEditing = true
-                    true
-                } else {
-                    false
+                val verticalMove = when (event.key) {
+                    Key.DirectionUp -> FocusDirection.Up
+                    Key.DirectionDown -> FocusDirection.Down
+                    else -> null
+                }
+                when {
+                    verticalMove != null -> {
+                        if (event.type == KeyEventType.KeyDown) focusManager.moveFocus(verticalMove)
+                        true
+                    }
+                    !isEditing && isConfirm -> {
+                        if (event.type == KeyEventType.KeyUp) isEditing = true
+                        true
+                    }
+                    // Brings the keyboard back after it was closed with Back.
+                    event.key == Key.DirectionCenter -> {
+                        if (event.type == KeyEventType.KeyUp) keyboardController?.show()
+                        true
+                    }
+                    else -> false
                 }
             },
         singleLine = true,
