@@ -29,6 +29,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -39,9 +40,10 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.listenTo
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.compose.ContentFrame
+import androidx.media3.ui.compose.modifiers.resizeWithContentScale
 import androidx.media3.ui.compose.state.rememberErrorState
 import androidx.media3.ui.compose.state.rememberPlayPauseButtonState
+import androidx.media3.ui.compose.state.rememberPresentationState
 import androidx.media3.ui.compose.state.rememberProgressStateWithTickCount
 import androidx.media3.ui.compose.state.rememberProgressStateWithTickInterval
 import androidx.tv.material3.Icon
@@ -50,6 +52,7 @@ import androidx.tv.material3.IconButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.jagapathi.immichtv.R
+import com.jagapathi.immichtv.ui.video.VideoSurfaceView
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -62,9 +65,11 @@ import kotlin.time.Duration.Companion.milliseconds
 internal fun VideoSurface(player: Player, placeholder: @Composable () -> Unit) {
     val playbackState = rememberPlaybackState(player)
     val error = rememberErrorState(player).error
+    val presentation = rememberPresentationState(player)
 
     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-        ContentFrame(player = player, shutter = placeholder)
+        VideoSurfaceView(player, Modifier.resizeWithContentScale(ContentScale.Fit, presentation.videoSizeDp))
+        if (presentation.coverSurface) placeholder()
         when {
             error != null -> VideoError(error)
             playbackState == Player.STATE_BUFFERING -> CircularProgressIndicator()
