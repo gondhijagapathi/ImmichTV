@@ -461,7 +461,7 @@ private val TileFocusGrowth = TimelineDefaults.TileSpacing - TileFocusBorder.wid
 internal object TimelineDefaults {
     const val Columns = 7
     val HorizontalPadding = 48.dp
-    val ScrubberWidth = 64.dp
+    val ScrubberWidth = 72.dp
     val TileSpacing = 6.dp
     val TileShape = RoundedCornerShape(4.dp)
 }

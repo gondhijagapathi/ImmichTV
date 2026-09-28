@@ -95,7 +95,8 @@ internal fun TimelineScrubber(
     val labelMonth = (if (isFocused) selectedMonth else position.month).coerceIn(months.indices)
 
     BoxWithConstraints(modifier = modifier.width(LabelAreaWidth + RailWidth)) {
-        val railHeight = maxHeight - RailVerticalPadding * 2
+        val railTop = RailMargin + RailVerticalPadding
+        val railHeight = maxHeight - railTop * 2
         val thumbY = railHeight * thumbFraction
 
         Box(
@@ -103,6 +104,9 @@ internal fun TimelineScrubber(
                 .align(Alignment.CenterEnd)
                 .width(RailWidth)
                 .fillMaxHeight()
+                // Keeps the focused background clear of the photos, the tabs, the bottom of the
+                // screen and its right edge.
+                .padding(start = RailStartMargin, top = RailMargin, end = RailEndMargin, bottom = RailMargin)
                 .onFocusChanged { state ->
                     if (state.isFocused && !isFocused) {
                         selectedMonth = position.month
@@ -172,12 +176,12 @@ internal fun TimelineScrubber(
         }
 
         if (isFocused || showLabelAfterScroll) {
-            val labelY = (thumbY + RailVerticalPadding - LabelHeight / 2).coerceIn(0.dp, maxHeight - LabelHeight)
+            val labelY = (thumbY + railTop - LabelHeight / 2).coerceIn(0.dp, maxHeight - LabelHeight)
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset { IntOffset(x = -RailWidth.roundToPx(), y = labelY.roundToPx()) }
+                    .offset { IntOffset(x = -(RailWidth - RailStartMargin + LabelGap).roundToPx(), y = labelY.roundToPx()) }
                     .height(LabelHeight)
                     .background(MaterialTheme.colorScheme.inverseSurface, RoundedCornerShape(LabelHeight / 2))
                     .padding(horizontal = 14.dp)
@@ -230,18 +234,25 @@ private fun YearLabels(months: List<TimelineMonth>, monthTops: FloatArray, railH
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .offset { IntOffset(x = 0, y = y.roundToInt() - YearLabelOffset.roundToPx()) }
-                .padding(start = 4.dp)
+                .padding(start = YearLabelStart)
         )
     }
 }
 
 private val RailWidth = TimelineDefaults.ScrubberWidth
-private val RailVerticalPadding = 16.dp
-private val TrackX = 50.dp
-private val ThumbWidth = 22.dp
+private val RailMargin = 8.dp
+private val RailStartMargin = TimelineDefaults.TileSpacing
+private val RailEndMargin = 4.dp
+// Keeps the first and last year labels clear of the focused background's rounded ends.
+private val RailVerticalPadding = 24.dp
+// The year labels and the thumb are the same distance from the sides of the focused background.
+private val YearLabelStart = 5.dp
+private val TrackX = 48.dp
+private val ThumbWidth = 18.dp
 private val ThumbHeight = 4.dp
 private val LabelAreaWidth = 200.dp
 private val LabelHeight = 32.dp
+private val LabelGap = 8.dp
 private val MinDotGap = 8.dp
 private val MinYearLabelGap = 20.dp
 private val YearLabelOffset = 6.dp
