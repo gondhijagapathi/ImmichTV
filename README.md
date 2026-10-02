@@ -59,24 +59,26 @@ CC0 photos from <a href="https://stocksnap.io">StockSnap</a>.</sub>
 
 ## Install
 
-There are no prebuilt releases yet, so for now you build the APK yourself and sideload it.
+Download the APK from the [latest release](https://github.com/gondhijagapathi/ImmichTV/releases/latest)
+and sideload it onto the TV, in either of these ways:
 
-```sh
-git clone https://github.com/gondhijagapathi/ImmichTV.git
-cd ImmichTV
-./gradlew assembleDebug
-```
+- **On the TV:** copy the APK over on a USB drive or with a file-transfer app, open it in a file
+  manager, and allow that app to install apps when Android asks.
+- **From a computer:** with
+  [ADB debugging enabled](https://developer.android.com/training/tv/get-started/hardware#usb-debugging)
+  on the TV:
 
-The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. With
-[ADB debugging enabled](https://developer.android.com/training/tv/get-started/hardware#usb-debugging)
-on the TV:
+  ```sh
+  adb connect <tv-ip-address>
+  adb install ImmichTV-1.0.apk
+  ```
 
-```sh
-adb connect <tv-ip-address>
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
+To update, install a newer release the same way. You stay logged in.
 
-Or run `./gradlew installDebug` to build and install in one step.
+Release APKs are signed with a certificate whose SHA-256 fingerprint is
+`36:1D:B8:DB:9E:61:B3:8E:87:12:9B:52:FA:DF:18:C4:DF:54:B9:80:FB:BD:9E:B0:77:3F:BA:26:8E:B9:C9:C0`.
+
+To build it yourself instead, see [Development](#development).
 
 ## Logging in
 
@@ -160,6 +162,9 @@ load.
 ./gradlew testDebugUnitTest    # run the unit tests
 ```
 
+A debug build and a release are signed with different keys, so Android won't install one over the
+other. Uninstall the one that's there first.
+
 ### Trying it without an Immich server
 
 [`tools/mock-immich-server`](tools/mock-immich-server) is a stand-in server that makes up a
@@ -178,6 +183,28 @@ emulating older Immich versions.
 
 For screenshots and demos it can show real photos instead, with `--photos <folder>`. The
 screenshots above were taken that way; the same README explains how to get the photos they use.
+
+### Making a release
+
+Release builds are signed with a key kept outside the repository. Gradle reads where it is from
+properties, e.g. in `~/.gradle/gradle.properties`:
+
+```properties
+immichtv.release.storeFile=/path/to/release.keystore
+immichtv.release.storePassword=...
+immichtv.release.keyAlias=...
+```
+
+Without them, `assembleRelease` makes an unsigned APK. With them:
+
+1. Raise `versionCode` and `versionName` in `app/build.gradle.kts`, and merge that.
+2. Build and publish, here for version 1.1:
+
+   ```sh
+   ./gradlew assembleRelease
+   cp app/build/outputs/apk/release/app-release.apk ImmichTV-1.1.apk
+   gh release create v1.1 ImmichTV-1.1.apk --generate-notes
+   ```
 
 ### Project layout
 

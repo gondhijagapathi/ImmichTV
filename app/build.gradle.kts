@@ -21,11 +21,27 @@ android {
 
     }
 
+    // The release key is kept out of the repository. It's named by Gradle properties, e.g. in
+    // ~/.gradle/gradle.properties. Without them the release build is left unsigned.
+    val releaseStoreFile = providers.gradleProperty("immichtv.release.storeFile").orNull
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = providers.gradleProperty("immichtv.release.storePassword").get()
+                keyAlias = providers.gradleProperty("immichtv.release.keyAlias").get()
+                // A PKCS12 keystore has one password for the store and its keys.
+                keyPassword = storePassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             optimization {
                 enable = true
             }
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {
