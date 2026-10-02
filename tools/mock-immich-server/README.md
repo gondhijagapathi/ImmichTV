@@ -32,6 +32,28 @@ Then log in on the TV with:
 - Server URL: `http://10.0.2.2:2283` from the Android emulator, or `http://<this computer's IP>:2283` from a real TV
 - API key: `test-api-key`
 
+## Real photos
+
+For screenshots and demos, `--photos <folder>` shows the photos in a folder (`.jpg`, `.png` or
+`.webp`) in place of the generated images, without the date and number on them:
+
+- Each subfolder becomes an album named after it, holding only its own photos. Outside albums too,
+  all of a day's photos come from one subfolder, as they would on a trip.
+- The `people` subfolder holds a face for each person, in a file named after them (`Meera.jpg`).
+  These take the place of the made-up people.
+- Videos are a still of their photo, with no clock or beeps.
+
+`fetch_demo_photos.py` downloads the library in the screenshots of the main README: about 260 CC0
+photos from [StockSnap](https://stocksnap.io) (90 MB), already laid out like this.
+
+```sh
+python3 tools/mock-immich-server/fetch_demo_photos.py
+python3 tools/mock-immich-server/mock_immich_server.py --photos ~/.cache/mock-immich-server/demo-photos --seed 16
+```
+
+`--seed 16` is the library the screenshots were taken with. If you were logged in to the mock server
+with another seed, sign out and log in again, since each seed makes a different user.
+
 ## Options
 
 | Option | Default | |
@@ -42,6 +64,7 @@ Then log in on the TV with:
 | `--delay-ms` | 0 | Slows every API response, to see loading placeholders |
 | `--legacy-durations` | off | Sends video durations as `H:MM:SS` strings, like Immich before v3 |
 | `--legacy-albums` | off | Lists albums like Immich before v3: only your own unless `shared=true` is sent, with the owner as a separate field |
+| `--photos` | none | A folder of real photos to show instead of generated images (see above) |
 | `--port` | 2283 | |
 | `--api-key` | `test-api-key` | |
 | `--cache-dir` | `~/.cache/mock-immich-server` | Where generated images and videos are kept |
