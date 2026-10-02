@@ -6,7 +6,7 @@ It serves a generated library of photos and videos spread over the last few year
 parts of the Immich API the app uses (users, people, albums, timeline, thumbnails, video playback).
 Response shapes follow Immich's OpenAPI spec. Images and videos are made on first request with
 ImageMagick and ffmpeg and cached, and each one shows its own date and number so ordering is easy
-to check.
+to check. With --photos it shows the photos in a folder instead, for screenshots and demos.
 
 Needs Python 3.10+, ImageMagick 7 (`magick`) and, to play videos, ffmpeg. Nothing else.
 
@@ -17,6 +17,8 @@ Needs Python 3.10+, ImageMagick 7 (`magick`) and, to play videos, ffmpeg. Nothin
 import argparse
 import base64
 import colorsys
+import hashlib
+import itertools
 import json
 import math
 import random
@@ -26,6 +28,7 @@ import subprocess
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -55,6 +58,7 @@ ALBUM_NAMES = ["Goa trip", "Diwali at home", "Tokyo", "Karthik's birthday", "Wee
 PREVIEW_SIZE = 1440
 THUMBNAIL_SIZE = 250
 VIDEO_SIZE = 960
+PHOTO_TYPES = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def find_font(pattern):
@@ -158,6 +162,42 @@ def gradient_thumbhash(top, bottom, ratio):
     return base64.b64encode(thumbhash(w, h, rgba)).decode()
 
 
+def read_photos(folder):
+    """
+    The photos in a folder, by the subfolder they are in ("" for the folder itself), and the faces
+    in its `people` subfolder, by the name of their file.
+    """
+    themes, faces = {}, {}
+    for path in sorted(folder.rglob("*")):
+        if path.suffix.lower() not in PHOTO_TYPES or not path.is_file():
+            continue
+        subfolder = path.parent.relative_to(folder).parts[:1]
+        if subfolder == ("people",):
+            faces[path.stem] = path
+        else:
+            themes.setdefault(subfolder[0] if subfolder else "", []).append(path)
+    return themes, faces
+
+
+def measure_photo(path):
+    """A photo's width divided by its height, and its ThumbHash."""
+    # The size hint lets a large JPEG be read at a fraction of its size, which is much faster.
+    out = subprocess.run([
+        "magick", "-define", "jpeg:size=96x96", str(path), "-auto-orient", "-format", "%w %h ", "-write", "info:-",
+        "-resize", "24x24", "-depth", "8", "rgba:-",
+    ], capture_output=True, check=True).stdout
+    width, height, pixels = out.split(b" ", 2)
+    ratio = int(width) / int(height)
+    w, h = (24, len(pixels) // 96) if ratio >= 1 else (len(pixels) // 96, 24)
+    return ratio, base64.b64encode(thumbhash(w, h, pixels)).decode()
+
+
+def photo_key(path):
+    """A name for the files made from a photo, which changes when the photo does."""
+    stat = path.stat()
+    return hashlib.sha1(f"{path.resolve()}:{stat.st_mtime_ns}:{stat.st_size}".encode()).hexdigest()[:16]
+
+
 def random_color(rng, lightness):
     r, g, b = colorsys.hls_to_rgb(rng.random(), lightness, 0.45 + rng.random() * 0.4)
     return [round(r * 255), round(g * 255), round(b * 255)]
@@ -168,21 +208,21 @@ def hex_color(rgb):
 
 
 class Library:
-    def __init__(self, count, seed, years):
+    def __init__(self, count, seed, years, photos=None):
         rng = random.Random(seed)
+        themes, faces = read_photos(photos) if photos else ({}, {})
         self.user_id = str(uuid.UUID(int=rng.getrandbits(128), version=4))
-        self.people = [
-            {"id": str(uuid.UUID(int=rng.getrandbits(128), version=4)), "name": name,
-             "color": hex_color(random_color(rng, 0.5))}
-            for name in PEOPLE
-        ]
+
+        def person(rng, name):
+            return {"id": str(uuid.UUID(int=rng.getrandbits(128), version=4)), "name": name,
+                    "color": hex_color(random_color(rng, 0.5)), "face": faces.get(name)}
+
+        self.people = [person(rng, name) for name in PEOPLE]
         # A separate generator, so adding people doesn't change the rest of the library.
         people_rng = random.Random(seed + 1)
-        self.people += [
-            {"id": str(uuid.UUID(int=people_rng.getrandbits(128), version=4)), "name": name,
-             "color": hex_color(random_color(people_rng, 0.5))}
-            for name in EXTRA_PEOPLE
-        ]
+        self.people += [person(people_rng, name) for name in EXTRA_PEOPLE]
+        if faces:
+            self.people = [person(people_rng, name) for name in faces]
         today = date.today()
         start = today - timedelta(days=365 * years)
 
@@ -219,6 +259,7 @@ class Library:
                     "duration_ms": rng.randrange(3_000, 180_000) if is_video else None,
                     "is_favorite": rng.random() < 0.1,
                     "ratio": ratio,
+                    "photo": None,
                     "top": top,
                     "bottom": bottom,
                     "city": city,
@@ -235,17 +276,20 @@ class Library:
         self.me = {"id": self.user_id, "name": "Demo User", "email": "demo@example.com"}
         self.friend = {"id": str(uuid.UUID(int=rng.getrandbits(128), version=4)), "name": "Asha Rao",
                        "email": "asha@example.com"}
-        self.albums = self.make_albums(rng)
+        # Albums are named after the folders of photos, if there are any, so they can be given those photos.
+        self.albums = self.make_albums(rng, [name for name in themes if name] or ALBUM_NAMES)
+        if themes:
+            self.use_photos(themes, random.Random(seed + 2))
 
-    def make_albums(self, rng):
+    def make_albums(self, rng, names):
         """Albums of a few consecutive photo days each, like trips, with one of each kind the app shows."""
         by_day = {}
         for asset in self.assets:
             by_day.setdefault(asset["local"].date(), []).append(asset)
         days = sorted(by_day, reverse=True)
-        starts = sorted(rng.sample(range(len(days) - 4), k=len(ALBUM_NAMES)))
+        starts = sorted(rng.sample(range(len(days) - 4), k=len(names)))
         albums = []
-        for name, start in zip(ALBUM_NAMES, starts):
+        for name, start in zip(names, starts):
             albums.append({
                 "id": str(uuid.UUID(int=rng.getrandbits(128), version=4)),
                 "name": name,
@@ -255,18 +299,47 @@ class Library:
                 "shared_with": [],
                 "order": "desc",
             })
-        albums[1]["owner"], albums[1]["shared_with"] = self.friend, [self.me]
-        albums[5]["owner"], albums[5]["shared_with"] = self.friend, [self.me]
-        albums[2]["shared_with"] = [self.friend]
-        albums[3]["order"] = "asc"
-        albums[3]["description"] = "Shown oldest first, as chosen for this album in Immich."
-        albums[4]["name"] = "A very long album name that will not fit on one line of its card"
-        albums[4]["description"] = ("A long description that goes on for a while, to check that it wraps onto a "
-                                    "second line and is then cut off neatly instead of pushing the photos down "
-                                    "the screen. " * 3).strip()
+        # Slices, since folders of photos may make fewer albums than ALBUM_NAMES does.
+        for album in albums[1:6:4]:
+            album["owner"], album["shared_with"] = self.friend, [self.me]
+        for album in albums[2:3]:
+            album["shared_with"] = [self.friend]
+        for album in albums[3:4]:
+            album["order"] = "asc"
+        if names is ALBUM_NAMES:
+            albums[3]["description"] = "Shown oldest first, as chosen for this album in Immich."
+            albums[4]["name"] = "A very long album name that will not fit on one line of its card"
+            albums[4]["description"] = ("A long description that goes on for a while, to check that it wraps onto a "
+                                        "second line and is then cut off neatly instead of pushing the photos down "
+                                        "the screen. " * 3).strip()
         albums.append({"id": str(uuid.UUID(int=rng.getrandbits(128), version=4)), "name": "Ideas for next year",
                        "description": "", "assets": [], "owner": self.me, "shared_with": [], "order": "desc"})
         return albums
+
+    def use_photos(self, themes, rng):
+        """
+        Gives every asset a real photo. Like the photos of a trip, a day's all come from one folder,
+        and so do those of an album named after a folder.
+        """
+        # A day that two albums share goes to the later one in the list, which leaves each album at least
+        # its newest day. That way every album has only its own folder's photos, and none ends up empty.
+        themed = [album for album in self.albums if album["name"] in themes]
+        day_theme = {asset["local"].date(): album["name"] for album in themed for asset in album["assets"]}
+        for album in themed:
+            album["assets"] = [asset for asset in album["assets"] if day_theme[asset["local"].date()] == album["name"]]
+        upcoming = {name: itertools.cycle(rng.sample(paths, len(paths))) for name, paths in themes.items()}
+        names = sorted(themes)
+        for asset in self.assets:
+            day = asset["local"].date()
+            if day not in day_theme:
+                day_theme[day] = rng.choice(names)
+            asset["photo"] = next(upcoming[day_theme[day]])
+
+        used = sorted({asset["photo"] for asset in self.assets})
+        with ThreadPoolExecutor() as pool:
+            measured = dict(zip(used, pool.map(measure_photo, used)))
+        for asset in self.assets:
+            asset["ratio"], asset["thumbhash"] = measured[asset["photo"]]
 
     def visible_albums(self):
         return [album for album in self.albums
@@ -362,6 +435,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[2] == "thumbnail":
                 if person is None:
                     return self.not_found()
+                if person["face"]:
+                    return self.send_image(f"face-{photo_key(person['face'])}",
+                                           lambda out: self.render_face(out, person["face"]))
                 return self.send_image(f"person-{person['id']}",
                                        lambda out: self.render_avatar(out, person["color"], person["name"][:1] or "?"))
             if person is None:
@@ -390,7 +466,7 @@ class Handler(BaseHTTPRequestHandler):
             if asset is None:
                 return self.not_found()
             size = PREVIEW_SIZE if params.get("size") == "preview" else THUMBNAIL_SIZE
-            return self.send_image(f"asset-{asset['id']}-{size}", lambda out: self.render_asset(out, asset, size))
+            return self.send_image(f"{self.cache_name(asset)}-{size}", lambda out: self.render_asset(out, asset, size))
         if len(parts) == 4 and parts[0] == "assets" and parts[2:] == ["video", "playback"]:
             asset = self.library.by_id.get(parts[1])
             if asset is None:
@@ -401,7 +477,7 @@ class Handler(BaseHTTPRequestHandler):
             if shutil.which("ffmpeg") is None:
                 return self.send_json({"message": "The mock server needs ffmpeg to make videos", "statusCode": 500,
                                        "error": "Internal Server Error"}, HTTPStatus.INTERNAL_SERVER_ERROR)
-            video = self.cached(f"video-{asset['id']}.mp4", lambda out: self.render_video(out, asset))
+            video = self.cached(f"video-{self.cache_name(asset)}.mp4", lambda out: self.render_video(out, asset))
             return self.send_file_range(video, "video/mp4")
         return self.not_found()
 
@@ -486,9 +562,23 @@ class Handler(BaseHTTPRequestHandler):
                                       for u in members]
         return response
 
+    @staticmethod
+    def cache_name(asset):
+        """What the files made for an asset are called: after its photo, if it has one, as assets can share one."""
+        if asset["photo"]:
+            return f"photo-{photo_key(asset['photo'])}-{asset['duration_ms'] or 0}"
+        return f"asset-{asset['id']}"
+
     def render_asset(self, out, asset, size):
         ratio = asset["ratio"]
         # Thumbnails are sized by their short side and previews by their long side, as in Immich.
+        if asset["photo"]:
+            geometry = f"{size}x{size}^" if size == THUMBNAIL_SIZE else f"{size}x{size}"
+            subprocess.run([
+                "magick", "-define", f"jpeg:size={size * 2}x{size * 2}", str(asset["photo"]), "-auto-orient",
+                "-resize", geometry, "-strip", "-quality", "85", str(out),
+            ], check=True)
+            return
         if size == THUMBNAIL_SIZE:
             w, h = (round(size * ratio), size) if ratio >= 1 else (size, round(size / ratio))
         else:
@@ -506,24 +596,36 @@ class Handler(BaseHTTPRequestHandler):
         ], check=True)
 
     def render_video(self, out, asset):
-        """The asset's preview with a running clock, and a beep every second."""
+        """The asset's preview with a running clock, and a beep every second. A real photo gets neither."""
         background = out.with_suffix(".jpg")
         self.render_asset(background, asset, VIDEO_SIZE)
         seconds = asset["duration_ms"] / 1000
         clock = r"%{eif\:t/60\:d}\:%{eif\:mod(t,60)\:d\:2}"
         font = f"fontfile='{CLOCK_FONT}':" if CLOCK_FONT else ""
+        sound = "aevalsrc='0.2*sin(2*PI*880*t)*lt(mod(t,1),0.08)':s=44100"
+        picture = "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+        if asset["photo"]:
+            sound = "anullsrc=r=44100:cl=mono"
+        else:
+            picture += (f",drawtext={font}text='{clock}':fontsize=h/10:fontcolor=white:"
+                        "box=1:boxcolor=black@0.4:boxborderw=12:x=(w-tw)/2:y=h*0.78")
         subprocess.run([
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-loop", "1", "-framerate", "10", "-i", str(background),
-            "-f", "lavfi", "-i", "aevalsrc='0.2*sin(2*PI*880*t)*lt(mod(t,1),0.08)':s=44100",
+            "-f", "lavfi", "-i", sound,
             "-t", f"{seconds:.3f}",
-            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,"
-                   f"drawtext={font}text='{clock}':fontsize=h/10:fontcolor=white:"
-                   "box=1:boxcolor=black@0.4:boxborderw=12:x=(w-tw)/2:y=h*0.78",
+            "-vf", picture,
             "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage", "-pix_fmt", "yuv420p", "-g", "20",
             "-c:a", "aac", "-b:a", "64k", "-shortest", "-movflags", "+faststart", "-f", "mp4", str(out),
         ], check=True)
         background.unlink()
+
+    @staticmethod
+    def render_face(out, face):
+        subprocess.run([
+            "magick", str(face), "-auto-orient", "-resize", "256x256^", "-gravity", "center", "-extent", "256x256",
+            "-strip", "-quality", "85", str(out),
+        ], check=True)
 
     @staticmethod
     def render_avatar(out, color, text):
@@ -613,11 +715,16 @@ def main():
                         help="send video durations as H:MM:SS strings, like Immich before v3")
     parser.add_argument("--legacy-albums", action="store_true",
                         help="list albums like Immich before v3: only your own unless shared=true is sent")
+    parser.add_argument("--photos", type=Path, metavar="FOLDER",
+                        help="show the photos in this folder instead of generated images: its subfolders become "
+                             "albums, and its `people` subfolder holds a face for each person, named after them")
     parser.add_argument("--cache-dir", type=Path, default=Path.home() / ".cache" / "mock-immich-server")
     args = parser.parse_args()
+    if args.photos and not read_photos(args.photos)[0]:
+        parser.error(f"no photos ({', '.join(sorted(PHOTO_TYPES))}) in {args.photos}")
 
     args.cache_dir.mkdir(parents=True, exist_ok=True)
-    Handler.library = Library(args.assets, args.seed, args.years)
+    Handler.library = Library(args.assets, args.seed, args.years, args.photos)
     Handler.api_key = args.api_key
     Handler.delay = args.delay_ms / 1000
     Handler.legacy_durations = args.legacy_durations
